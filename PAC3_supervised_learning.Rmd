@@ -1,0 +1,577 @@
+---
+title: 'Mineria de dades: PAC3 - Classificació amb arbres de decisió'
+author: "Autor: Xavier Vizcaino"
+date: "Maig 2023"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 4
+    includes:
+      in_header: 05.584-PAC-header.html
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval=T, echo=T)
+colors<-c("cornflowerblue","#F8766D")
+```
+
+```{r include=FALSE, message=FALSE, warning=FALSE}
+# crida a paquets
+if(!require('Rmisc')) install.packages('Rmisc'); library('Rmisc')
+if(!require('DescTools')) install.packages('DescTools');library('DescTools')
+if(!require('gmodels'))install.packages('gmodels');library('gmodels')
+if(!require('randomForest')) install.packages('randomForest');library('randomForest')
+if(!require('iml')) install.packages('iml');library('iml')
+if(!require('patchwork')) install.packages('patchwork');library('patchwork')
+if(!require('grid')) install.packages('grid'); library('grid')
+if (!require('tidyverse')) install.packages('tidyverse'); library('tidyverse')
+if(!require('dplyr')) install.packages('dplyr'); library('dplyr')
+if (!require('ggplot2')) install.packages('ggplot2'); library('ggplot2')
+if (!require('caret')) install.packages('caret'); library('caret')
+if(!require('scales')) install.packages('scales'); library('scales')
+if(!require('gridExtra')) install.packages('gridExtra'); library('gridExtra')
+```
+
+# Anàlisi inicial
+
+## Càrrega de les dades:
+
+Es carreguen les dades i s'obté una primera visualització del *dataset* i del tipus de dades per cada variable.
+
+```{r message= FALSE, warning=FALSE}
+# Càrrega de dades
+data<-read.csv("./credit.csv",header=T,sep=",")
+attach(data)
+str(data)
+```
+
+S'observa que inicialment existeixen dades de dos tipus: 
+
++ tipus **chr** (*character*)
++ tipus **int** (*integer*)
+
+## Exploració de la base de dades
+
+Es calculen les dimensions de la base de dades mitjançant la funció dim().
+
+```{r}
+# Dimensions dataset
+dim(data)
+```
+
+S'obté que el *dataset* disposa de `r dim(data)[1]` registres (files) i `r dim(data)[2]` variables (columnes). 
+
+També, s'avalua la qualitat del conjunt de dades fent un recompte del nombre de NAs, considerant cada variable per separat.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# Comprovació NA
+NA_number<-sum(is.na(data))
+if (NA_number!=0){
+  colSums(is.na(data))
+}else{
+  NA_number
+}
+```
+
+Aquest darrer punt ens permet comprovar que el *dataset* ja està net i que no hi ha NAs.
+
+A partir de la informació detallada, les variables que es consideraran per a l'estudi són les següents:
+
+**VARIABLE TARGET**
+
++ **default**   1 = "No default" i 2 = "Default"
+
+**VARIABLES EXPLICATIVES**
+
++ **checking_balance**   balanç actual del compte
++ **months_loan_duration**    duració del crèdit
++ **credit_history**    historial de crèdits
++ **purpose**   finalitat del crèdit
++ **amount**    quantitat del crèdit
++ **savings_balance**   balanç dels estalvis
++ **employment_length**   temps en el lloc de treball actual
++ **installment_rate**    despeses com a percentatge dels ingressos
++ **personal_status**   situació matrimonial i gènere
++ **other_debtors**   altres deutors
++ **residence_history**   temps en la residència habitual
++ **property**    tipus de residència
++ **age**   edat
++ **installment_plan**    altres tipus de despeses
++ **housing**   habitatge
++ **existing_credits**    nombre de crèdits existents en aquest banc
++ **dependents**    nombre de persones dependents
++ **telephone**   existència de telèfon
++ **foreign_workers**   treballador estranger
++ **job**    tipus de feina
+
+Un cop presentades les variables, la seva tipologia i la informació que contenen, es procedeix a canviar el tipus de dada a **factor** per a totes les variables categòriques i que han estat categoritzades com a *char* de manera automàtica en l'operació de càrrega del fitxer així com actualitzar els nivells de la variable **default**.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# Variables a codificar com a categòriques
+columns<-c("default","checking_balance","credit_history","purpose","savings_balance",
+           "employment_length","personal_status","other_debtors","property",
+           "installment_plan","housing","telephone","foreign_worker","job","installment_rate",
+           "residence_history","existing_credits","dependents")
+
+# Canvi de tipus i re-codificació
+data[columns]<-lapply(data[columns],as.factor)
+data$default<-recode_factor(data$default,"1"="No","2"="Yes")
+```
+
+Després dels canvis anteriors, per tal de conèixer amb una mica més de detall els valors possibles per cada variable s'analitza el contigut de la base de dades amb la funció summary().
+
+```{r}
+# Resum de dades
+summary(data)
+```
+
+## Primera visualització de dades
+
+### Variables numèriques
+
+A través d'un procés iteratiu que recorre totes les variables de tipus **NO**_factor (en el cas que ens ocupa, les numèriques) és generen histogrames per tal d'entendre la distribució de les dades per cada una de les variables.
+
+```{r echo=TRUE, fig.height=8, message=FALSE, warning=FALSE, fig.width=10}
+histList<- list()
+
+# creació dataset auxiliar
+dataAux= data %>% 
+  dplyr::select(!columns)
+summary(dataAux)
+
+# creació gràfics
+for(i in 1:ncol(dataAux)){
+  col <- names(dataAux)[i]
+  ggp <- ggplot(dataAux, aes_string(x = col)) +
+    geom_histogram(bins = 30, fill = "cornflowerblue", color = "black") 
+  histList[[i]] <- ggp
+}
+ multiplot(plotlist = histList, cols = 1)
+```
+
+**Observacions:**
+
++ **months_loan_duration**: Presenta una distribució bi-modal, amb els punts de concentració als 12 i 24 mesos.
++ **amount**: S'observa que les dades es distribueixen de manera esbiaixada cap a l'esquerra amb la màxima concentració de valors entre 1.000 i 1.500.
++ **age**: També presenta una distribució esbiaixada cap a l'esquerra. En aquest cas amb la màxima concentració de valors entre 22 i 28 anys.
+
+### Variables categòriques
+
+De manera anàloga i també a través d'un procés iteratiu que recorre totes les variables (en aquest cas de tipus factor) és generen gràfics de barres per tal d'interpretar el percentatge per a cada nivell. Addicionalment, a totes les variables s'aplica una diferenciació de color segons la variable **default**.
+
+```{r echo=TRUE, fig.height=40, fig.width=10, message=FALSE, warning=FALSE}
+histList<- list()
+
+# creació dataset auxiliar
+dataAux= data %>% 
+  dplyr::select(columns)
+histList[[1]] <- ggplot(dataAux, aes(x = default)) +
+    geom_bar(fill = colors, color = "black") +
+    ggtitle(paste("Ocurrències default"))
+
+# creació gràfics
+for(i in 2:ncol(dataAux)){
+  col <- names(dataAux)[i]
+  ggp <- ggplot(dataAux, aes_string(x = col,fill="default")) +
+    geom_bar(color = "black") +
+    scale_fill_manual(values=colors) +
+    ggtitle(paste(col,"vs default"))
+      histList[[i]] <- ggp
+}
+ multiplot(plotlist = histList, cols = 1)
+```
+
+Per tal d'interpretar millor la relació entre les dues variables categòriques (la variable **default** i la variable a estudiar) es grafiquen les taules de contingència, representació que permet de manera molt visual, establir una relació entre els nivells que comporten un percentatge diferent en la variable **default**.
+
+```{r echo=TRUE, fig.height=30, fig.width=10, message=FALSE, warning=FALSE}
+par(mfrow=c(9,2))
+# creació gràfics
+for(i in 2:ncol(dataAux)){
+  col <- names(dataAux)[i]
+  tabla <- table(dataAux[[col]],dataAux$default)
+  plot(tabla, col = colors, main = paste(col, " vs. default"))
+}
+```
+
+**Observacions:**
+
++ **checking_balance**: El percentatge de **default** per als nivells **<0 DM** i **1-200 DM** és molt més elevat que per els altres casos i per aquests casos existèixen moltes observacions.
++ **credit_history**: El percentatge de **default** per als nivells **fully repaid** i **fully repaid this banc** és molt més elevat que per els altres casos, tot i que es pot considerar que aquests casos són minoritaris.
++ **purpose**: El percentatge de **default** més elevat es produeix quan el crèdit és destinat a **education**, tot i que aquesta categoria no presenta un nombre elevat de mostres. Considerant les categories més representatives, el crèdit per **car (new)** és el que presenta un percentatge de default més elevat.
++ **savings_balance**: El percentatge de **default** més elevat es produeix per a balanços **<100 DM** i **101-500 DM**.
++ **personal_status**: El percentatge de **default** més elevat es produeix per a **divorced male**, tot i que les diferències amb les altres categories no son gaire grans.
++ **telephone**, **dependents** i **residence_history**: No presenten diferències en el percentatge de **default** en funció dels diferents nivells per a cada variable.
+
+### Tests estadístics de significança
+
+A banda de mostrar les dades de manera descriptiva, s'afegeixen els tests estadístics **Phi** i **CramerV** per a validar el grau de significança de la relació entre les dues variables categòriques (la variable a estudiar i la variable **default**).
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# creació taules
+for(i in 2:ncol(dataAux)){
+  col <- names(dataAux)[i]
+  tabla <- table(dataAux[[col]],dataAux$default)
+  a<-prop.table(tabla, margin = 1)
+  b<-Phi(tabla) 
+  c<-CramerV(tabla)
+  print(col); print(a); print(paste("Phi = ",round(b,4))); print(paste("CramerV = ",round(c,4))); cat("\n")
+}
+```
+
+Amb l'aplicació dels tests de significança estadística es conclou:
+
++ Els valors de **Phi** i **CramerV** coincideixen per a totes les taules de contingència. Aquest fet sempre és així per a taules de contingència 2x2.
++ L'únic parell de variables amb una associació estadística mitjana (0.3< $\phi$ < 0.5) és **checking_balance** - **default**
++ La resta de parells de variables presenten tots una associació estadística baixa (<0.3)
+
+# Creació del model
+
+## Preparació de les dades
+
+Es desenvolupa un primer model d'arbre de decisió considerant totes les variables excepte les tres últimes mencionades en les observacions, per no representar cap tipus de diferència en la distribució de la variable *target*.
+
+Per començar la preparació del model es separen les dades entre variables explicatives i variable resposta.
+
+```{r}
+# Preparació de les dades
+set.seed(4)
+y <- data$default
+X <- data %>%
+  dplyr::select(!c("default","telephone","dependents","residence_history"))
+
+```
+
+És defineix una variable *split_prop* per a poder separar les dades entre *train* i *test* de manera dinàmica.
+
+```{r}
+# Separació de dades entre test i entrenament
+split_prop <- 3 
+indexes = sample(1:nrow(data), size=floor(((split_prop-1)/split_prop)*nrow(data)))
+trainX<-X[indexes,]
+trainy<-y[indexes]
+testX<-X[-indexes,]
+testy<-y[-indexes]
+```
+
+L'extracció dels dos grups de dades es realitza de manera aleatòria amb la funció sample(). De totes maneres, és recomanable realitzar una petita comprovació per garantir que no s'obtenen biaixos. Així doncs es verifica que no hi ha diferències significatives en les proporcions dels dos conjunts:
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# Percentatges de representació nivells variable target
+print(paste("default", " - train"))
+prop.table(summary(trainy))
+print(paste("default", " - test"))
+prop.table(summary(testy))
+
+# Percentatges de representació nivells variables explicatives
+for(i in 1:ncol(trainX)){
+  col <- names(trainX)[i]
+  print(paste(col, " - train"))
+  print(prop.table(summary(trainX[[col]])))
+  print(paste(col, " - test"))
+  print(prop.table(summary(testX[[col]])))
+  cat("\n")
+}
+```
+
+A partir de les dades anteriors es pot concloure que no s'observen biaixos importants derivats de l'operació de mostreig.
+
+## Creació del model
+
+Es crea l'arbre de decisió usant les dades d'entrenament:
+
+```{r}
+# Modelat
+model <- C50::C5.0(x=trainX, y=trainy, rules=TRUE)
+summary(model)
+```
+
+A continuació, es procedeix a mostrar en format gràfic l'arbre obtingut.
+
+```{r fig.height=15, fig.width=30, message=FALSE, warning=FALSE}
+model <- C50::C5.0(x=trainX, y=trainy,rules=FALSE)
+plot(model, gp = gpar(fontsize = 8))
+```
+
+# Avaluació del model
+
+## Qualitat i extracció de regles
+
+L'arbre obtingut classifica erròniament 117 dels 666 casos utilitzats per a l'entrenament, una taxa d'error del 17.6%.  Del total d'errors, 23 pertanyen a la classe *no* i han estat classificats com a *yes* mentre que 94 pertanyen a la classe *yes* i l'arbre els classifica com a *no*. 
+
+Es important analitzar el tipus d'errors que està comenten l'algoritme de classificació ja que, en el cas que ens ocupa:
+
++ el primer cas (no classificats com a si) suposa un risc relacionat amb el cost d'oportunitat, és a dir, a un client no se li dona un crèdit per altes probabilitats d'impagament quant no és així
++ el segon cas el risc és directament relacionat amb l'impagament (a un client se li dona un crèdit pensant que el podrà pagar, quant realment no és així).
+
+A partir de l'arbre de decisió modelat, es poden extreure les següents regles de decisió:
+
++ **Rule 1**: checking_balance = unknown ->  class **No default** // validesa 87.9%
++ **Rule 2**: credit_history in {critical, delayed, repaid}	->  class **No default** // validesa 73.4%
++ **Rule 3**: checking_balance in {< 0 DM, > 200 DM, 1 - 200 DM} + months_loan_duration > 30 + savings_balance = < 100 DM + installment_rate = 4 ->  class **Yes default** // validesa 92.0%
++ **Rule 4**: checking_balance in {< 0 DM, 1 - 200 DM} + months_loan_duration > 7 + credit_history = repaid + purpose = car (new) + employment_length in {0 - 1 yrs, 1 - 4 yrs, 4 - 7 yrs} + installment_rate in {2, 3, 4} + personal_status = female + other_debtors = none ->  class **Yes default** // validesa 88.2%
++ **Rule 5**: checking_balance in {< 0 DM, 1 - 200 DM} + personal_status = female + other_debtors = co-applicant ->  class **Yes default** // validesa 83.3%
++ **Rule 6**: checking_balance in {< 0 DM, 1 - 200 DM} + purpose = radio/tv + savings_balance in {101 - 500 DM, unknown} +	personal_status = married male ->  class **Yes default** // validesa 83.3%
++ **Rule 7**: checking_balance in {< 0 DM, > 200 DM, 1 - 200 DM} + months_loan_duration > 7 +	amount <= 1374 + savings_balance in {< 100 DM, 101 - 500 DM, unknown} + personal_status = female	->  class **Yes default** // validesa 82.1%
++ **Rule 8**: checking_balance = < 0 DM + months_loan_duration > 30 + credit_history = repaid + installment_rate = 3	->  class **Yes default** // validesa 80.0%
++ **Rule 9**: checking_balance in {< 0 DM, > 200 DM, 1 - 200 DM} + months_loan_duration > 7 + months_loan_duration <= 30 + employment_length in {> 7 yrs, 0 - 1 yrs, 4 - 7 yrs, unemployed} + personal_status = divorced male ->  class **Yes default** // validesa 80.0%
++ **Rule 10**: checking_balance in {< 0 DM, 1 - 200 DM} + months_loan_duration > 30 + credit_history in {critical, repaid} +	installment_rate = 1 ->  class **Yes default** // validesa 75.0%
++ **Rule 11**: checking_balance in {< 0 DM, > 200 DM, 1 - 200 DM} + credit_history in {fully repaid, fully repaid this bank}  ->  class **Yes default** // validesa 71.2%
+
+El nombre d'observacions cobertes per cada regla és (per ordre creixent de R1 fins a R11): 270, 603, 23, 15, 4, 4, 26, 3, 13, 6, 50. El fet d'obtenir regles que tan sols cobreixen 3,4 o 6 casos dels 666 utilitzats per a l'entrenament podria indicar un cert nivell d'*overfitting* en el model generat.
+
+Tanmateix, analitzant la utilització dels atributs en l'arbre de decisió s'obté:
+
++ 98.05%	credit_history
++ 59.76%	checking_balance
++ 11.71%	months_loan_duration
++ 8.11%	personal_status
++ 7.96%	savings_balance
++ 6.91%	installment_rate
++ 4.20%	employment_length
++ 3.90%	amount
++ 2.85%	purpose
++ 2.85%	other_debtors
+
+## Interpretació
+
+Partint de les regles obtingudes i la interpretació dels diferents nodes i branques de l'arbre de decisió es poden extreure les següents conclusions amb l'objectiu de pre-detectar possibles casos de *default*:
+
++ Els homes divorciats, amb una duració en el seu lloc de treball diferent a entre 1-4 anys, amb duració de crèdits superiors a 7 mesos, historial de crèdit *critical*, *delayed* o *repaid* i balanç diferent de *unknown* tenen una alta probabilitat (>80%) de **default** [12 casos]
++ Les dones sense avals ni *co-applicants* que demanen crèdits amb una duració superior a 7 mesos per a quantitats petites (<1374DM), amb pocs estalvis (<500DM), historial de crèdit *critical*, *delayed* o *repaid* i balanç diferent de *unknown* tenen una alta probabilitat (>80%) de **default** [24 casos]
++ Quan el crèdit té una duració de més de 30 mesos, l'*installment rate* és 4, el nivell d'estalvis es inferior a 100DM o superior a 100DM, si l'historial de crèdit és *critical*, *delayed* o *repaid* i el balanç diferent de *unknown* hi ha una alta probabilitat (>90%) de **default** [20 casos] 
+
+## Anàlisi de bondat
+
+A continuació es comprova la qualitat del model predient la classe per a les dades que han estat reservades inicialment.
+
+```{r}
+# Aplicació del model a les dades de test
+predicted_model <- predict( model, testX, type="class" )
+
+# Càlcul de la precisió
+print(sprintf("El %% de registres correctament classificats és: %.4f %%",
+              100*sum(predicted_model == testy) / length(predicted_model)))
+```
+
+La qualitat de la predicció també es pot analitzar mitjançant una matriu de confusió que identifica els tipus d'errors comesos.
+
+```{r}
+# Matriu de confusió
+mat_conf<-table(actual=testy,predicted=predicted_model)
+mat_conf
+```
+
+Una altra manera de calcular el percentatge de registres correctament classificats és sumant la diagonal de la matriu de confusió i dividint aquest valor per la suma total dels valors de la mateixa matriu de confusió:
+
+```{r}
+p_ok<-100 * sum(diag(mat_conf)) / sum(mat_conf)
+print(sprintf("El %% de registres correctament classificats és: %.4f %%",p_ok))
+
+```
+
+També es pot utilitzar la funció *CrossTable* del paquet *gmodels* per a obtenir informació més completa dels elements correctament classificats i els que no:
+
+```{r}
+CrossTable(testy, predicted_model,prop.chisq  = FALSE, prop.c = FALSE, prop.r =FALSE,dnn = c('Reality', 'Prediction'))
+```
+
+Addicionalment també es poden obtenir estadístiques ampliades a partir de la matriu de confusió com poden ser la sensitivitat i la specificitat (entre altres) que permeten entendre les capacitats del model per predir correctament un positiu condicionat en que sigui positiu verdader o un negatiu també condicionat a que aquests sigui negatiu verdader.
+
+```{r}
+ms<-caret::confusionMatrix(mat_conf)
+ms
+```
+
+# Nous enfocaments
+
+## Boosting
+
+La idea d'aquest nou enfocament és generar diversos classificadors, cada un amb el corresponent arbre de decisió i les seves regles. Quan un nou cas ha de ser classificat, cada un dels classificadors generats emet el seu vot i aquests finalment són sumats per tal de determinar la classe final. En el cas implementat a sota s'ha escollit N=10 per al nombre de classificadors
+
+```{r fig.height=15, fig.width=30, message=FALSE, warning=FALSE}
+# Modelat
+model_boosting <- C50::C5.0(trainX, trainy, trials = 10)
+summary(model_boosting)
+
+# Visualització
+plot(model_boosting, gp = gpar(fontsize = 8))
+```
+
+S'observa que la taxa d'errors amb el sistema *boosting* es molt baixa: 31 casos de 666 (un 4.7%).
+Veiem a continuació com són les prediccions del nou arbre:
+
+```{r}
+# Aplicació model a dades noves
+predicted_model_boosting <- predict(model_boosting, testX, type="class" )
+
+# Matriu de confusió i avaluació de la precisió
+mat_conf_b<-table(actual=testy,predicted=predicted_model_boosting)
+p_ok_boost<-100 * sum(diag(mat_conf_b)) / sum(mat_conf_b)
+mat_conf_b
+```
+
+```{r}
+print(sprintf("La precisió del model amb boosting és del %.4f %%",p_ok_boost))
+```
+
+```{r}
+mb<-caret::confusionMatrix(mat_conf_b)
+mb
+```
+
+## Winnowing
+
+Un altre enfocament és utilitzar la tècnica de *winnowing* per a reduir la complexitat de l'arbre, reduïnt el nombre d'atributs considerats i acceptant possibles pèrdues en la precisió del model.
+
+```{r fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+# Modelat
+ctrl<-C50::C5.0Control(winnow = TRUE)
+model_winnow <- C50::C5.0(trainX, trainy, control = ctrl)
+summary(model_winnow)
+
+# Visualització
+plot(model_winnow, gp = gpar(fontsize = 8))
+```
+En aquest cas s'observa que la taxa d'errors és la més elevada fins el moment, 158 dels 666 (un 23.7%).
+
+Veiem a continuació com són les prediccions del nou arbre:
+
+```{r}
+# Aplicació model a dades noves
+predicted_model_winnow <- predict(model_winnow, testX, type="class" )
+
+# Matriu de confusió i avaluació de la precisió
+mat_conf_w<-table(actual=testy,predicted=predicted_model_winnow)
+p_ok_winnow<-100 * sum(diag(mat_conf_w)) / sum(mat_conf_w)
+mat_conf_w
+```
+
+```{r}
+print(sprintf("La precisió del model amb winnowing és del %.4f %%",p_ok_winnow))
+```
+
+S'observa que la precisió del classificador incrementa amb l'opció *winnowing*, aquest fet que podria indicar que l'arbre inicial tenia *overfitting* i per tant l'adaptabilitat a noves dades (les de test) era més limitada que en el cas d'un classificador més simplificat com és aquest darrer.
+
+```{r}
+mw<-caret::confusionMatrix(mat_conf_w)
+mw
+```
+
+## Random forest
+
+Es preparen les dades i s'executa la creació del model de *randomForest* per a les dades d'entrenament i amb un nombre d'arbres **ntree**=100.
+
+```{r}
+# Preparació
+train.data <- as.data.frame(cbind(trainX,trainy))
+colnames(train.data)[ncol(train.data)] <- "Default"
+
+# Modelat
+rf <-  randomForest(Default ~ ., data = train.data, ntree = 100)
+rf
+```
+
+```{r}
+# Matriu de confusió i càlcul de l'error
+mat_conf_rf<-rf$confusion
+p_ok_rf<-100 * sum(diag(mat_conf_rf)) / sum(mat_conf_rf)
+print(sprintf("El %% de registres correctament classificats és: %.4f %%",p_ok_rf))
+```
+
+Veiem a continuació com són les prediccions del random forest sobre dades noves:
+
+```{r}
+# Aplicació model a dades noves
+predicted_model_rf <- predict(rf, testX, type="class" )
+
+# Matriu de confusió i avaluació de la precisió
+mat_conf_rf_test<-table(actual=testy,predicted=predicted_model_rf)
+p_ok_rf<-100 * sum(diag(mat_conf_rf_test)) / sum(mat_conf_rf_test)
+mat_conf_rf_test
+print(sprintf("La precisió del random forest és del %.4f %%",p_ok_rf))
+```
+
+```{r}
+mrf<-caret::confusionMatrix(mat_conf_rf_test)
+mrf
+```
+
+# Interpretable ML
+
+El paquet **iml** permet interpretar els resultats obtinguts a través d'algoritmes d'aprenentatge automàtic. Un exemple és la funció *FeatureImp* que permet mesurar i graficar la importància de cada variable prenent com a base que un *feature* serà important si la permutació dels seus valors incremena l'error del model i serà poc important si la permutació dels seus valors manté l'error sense canvis.
+
+```{r fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+X <- train.data[which(names(train.data) != "Default")]
+predictor <- Predictor$new(rf, data = X, y = train.data$Default)
+imp <- FeatureImp$new(predictor, loss = "ce")
+
+# Grafic
+plot(imp)
+```
+
+Així doncs es pot concloure que les varaibles *foreign_worker*, *existing_credits* i *other_debtors* tenen poca importància en el conjunt d'arbres generats a través de l'algortime *random forest* mentre que les variables *checking_balance*, *months_loan_duration*, *amount*, *purpose* i *age* són les que tenen més importància.
+
+```{r fig.height=4, fig.width=10, message=FALSE, warning=FALSE}
+interact <- Interaction$new(predictor) %>% plot() + ggtitle("Interactions")
+interact
+```
+
+També es pot observar els atributs que tenen més interacció amb els altres, d'acord al gràfic superior l'atribut amb més interaccions és **amount**.
+
+```{r fig.height=4, fig.width=10, message=FALSE, warning=FALSE}
+interact.amount <- Interaction$new(predictor, feature = "amount") %>% plot()
+interact.amount
+```
+
+Per finalitzar, també es possible estudiar el nivell d'interacció de la resta d'atributs amb un atribut concret. En el cas anterior s'ha seleccionat l'atribut **amount** i s'observa que la variable amb més interacció és **other_debtors**.
+
+Addicionalment, podem també dibuixar els efectes locals acumulats (ALE) de la variable usant la libreria _patchwork_:
+  
+```{r fig.height=20, fig.width=10, message=FALSE, warning=FALSE}
+effs <- FeatureEffects$new(predictor)
+plot(effs, ncols=2)
+```
+
+Que permet observar de forma visual la magnitud dels efectes per als nivells de les variables amb major importància (*checking_balance* o *months_loan_duration*) amb efectes de magnitud important, així com per als nivells de les variables amb menor importància (*job*, *foreign_worker* o *existing_credits*)
+
+# Conclusions
+
++ El joc de dades està format per 3 variables numèriques amb una distribució continua i 18 variables categòriques.
++ A partir de la representació visual de les taules de contingència s'intueix una certa importància de les variables **checking_balance** i **credit_history**.
++ La relació entre les diferents variables categòriques presents en el *dataset* és generalment baixa tal i com indiquen els tests *phi* i *cramerV*.
++ Un primer arbre de decisió presenta com a resultat 11 regles per a definir la variable **default** a partir de les altres.
++ Adicionalment s'entren altres models d'arbres de decisió considerant *boosting*, *winnowing* i *random forest*.
++ Els errors de categorització en les dades d'entrenament són els següents (registres categoritzats incorrectament // percentatge sobre el total de mostres d'entrenament):
+  + Model stàndard = 117 // 17.6%
+  + Model boosting = 31 // 4.7%
+  + Model winnowing = 158 // 23.7%
+  + Random Forest = 177 // 26.58%
++ La precisió dels models per a categoritzar correctament dades noves (les dades de test separades inicialment) és:
+  + Model stàndard = `r percent(ms$overall[1],accuracy=0.01)`
+  + Model boosting = `r percent(mb$overall[1],accuracy=0.01)`
+  + Model winnowing = `r percent(mw$overall[1],accuracy=0.01)`
+  + Random Forest = `r percent(mrf$overall[1],accuracy=0.01)`
++ La sensitivitat dels models, entesa com la capacitat per a detectar correctament els casos de **No default** condicionat a que realment sigui **No default** és:
+  + Model stàndard = `r percent(ms$byClass[1],accuracy=0.01)`
+  + Model boosting = `r percent(mb$byClass[1],accuracy=0.01)`
+  + Model winnowing = `r percent(mw$byClass[1],accuracy=0.01)`
+  + Random Forest = `r percent(mrf$byClass[1],accuracy=0.01)`
++ La especificitats dels models, entesa com la capacitat per a detectar correctament els casos de **Default** condicionat a que realment sigui **Default** és:
+  + Model stàndard = `r percent(ms$byClass[2],accuracy=0.01)`
+  + Model boosting = `r percent(mb$byClass[2],accuracy=0.01)`
+  + Model winnowing = `r percent(mw$byClass[2],accuracy=0.01)`
+  + Random Forest = `r percent(mrf$byClass[2],accuracy=0.01)`
++ A partir de les estadístiques de rendiment es pot concloure:
+  + Random Forest és l'algoritme que millors resultats aporta sobre les dades de test; millor precisió, sensitivitat i especificitat.
+  + El model amb winnowing és molt simple, només té 7 nodes dels quals 4 són terminals; tot i així mostra una precisió, sensitivitat i especificitat al mateix nivell que els models més complexos
+  + El model de base genera un arbre de decisió amb una alta complexitat, amb variables amb molt poca utilització i nodes terminals amb un nombre baix de registres. Probablement pateixi d'*overfitting*.
+  + Finalment a través de la interpretació del model de *random forest* s'extreu que les variables amb major importància són *checking_balance* o *months_loan_duration* amb efectes de magnitud important.
+  + Tanmateix es conclou que les variables de menor (o gairebé nul·la) importància són *job*, *foreign_worker* o *existing_credits*
+  

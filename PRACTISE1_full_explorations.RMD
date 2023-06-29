@@ -1,0 +1,915 @@
+---
+title: 'Mineria de dades: PRA1 - Selecció i preparació d''un joc de dades'
+author: "Autor: Xavier Vizcaino Gascon"
+date: "Maig 2023"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 3
+    includes:
+      in_header: 05.584-PEC-header.html
+  word_document: default
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+colors<-c("#F8766D","#00BFC4")
+```
+
+```{r include=FALSE, message=FALSE, warning=FALSE}
+# crida a paquets
+if(!require('Rmisc')) install.packages('Rmisc'); library('Rmisc')
+if(!require('scales')) install.packages('scales'); library('scales')
+if (!require('tidyverse')) install.packages('tidyverse'); library('tidyverse')
+if(!require('dplyr')) install.packages('dplyr'); library('dplyr')
+if (!require('ggplot2')) install.packages('ggplot2'); library('ggplot2')
+if (!require('cowplot')) install.packages('cowplot'); library('cowplot')
+if(!require('corrplot')) install.packages('corrplot'); library('corrplot')
+if(!require('ggcorrplot')) install.packages('ggcorrplot'); library('ggcorrplot')
+if(!require('RcmdrMisc')) install.packages('RcmdrMisc'); library('RcmdrMisc')
+if(!require('fastDummies')) install.packages('fastDummies'); library('fastDummies')
+if (!require('factoextra')) install.packages('factoextra'); library('factoextra')
+```
+
+# Plantejament del problema
+
+L'objectiu analític del treball és conèixer amb detall els factors que contribueixen a l'abandonament escolar per tal de poder identificar els alumnes en risc, tan aviat com sigui possible.
+
+Per tal de resoldre el problema s'analitzen les dades de [**Predict students' dropout and academic success**](https://archive-beta.ics.uci.edu/dataset/697/predict+students+dropout+and+academic+success) que es pot trobar en la pàgina web de [UCI Machine Learning](https://archive.ics.uci.edu/ml/datasets.php).
+
+El procediment a utilitzar considera les següents fases:
+
++ Descripció de l'origen del conjunt de dades
++ Càrrega de les dades
++ Exploració del conjunt de dades
++ Pre-processament i gestió de característiques
++ Exploració inicial
++ Anàlisi de correlacions entre variables
++ Codificació i Normalització de variables
++ Construcció del conjunt de dades final
++ Anàlisi PCA
++ Anàlisi SVD
++ Conclusions finals
+
+# Descripció de l'origen del conjunt de dades
+
+L'UCI Machine Learning Repository és una col·lecció de bases de dades i generadors de dades que la comunitat de *Machine Learning* utilitza per a l'anàlisi empíric dels algorismes d'aprenentatge automàtic. L'arxiu va ser creat com a ftp l'any 1987 per David Aha i altres estudiants de postgrau de la UC Irvine. Des d'aleshores, ha estat àmpliament utilitzat per estudiants, educadors i investigadors de tot el món com a font principal de conjunts de dades d'aprenentatge automàtic. L'UCI Machine Learning Repository s'ha citat més de 1000 vegades, la qual cosa el converteix en un dels 100 "articles" més citats de tota la informàtica.
+
+Pel que fa al *dataset* **Predict students' dropout and academic success** és un conjunt de dades relacionat amb l'educació superior (adquirit a partir de diverses bases de dades disjuntives) i que considera estudiants matriculats en diferents graus, com agronomia, disseny, educació, infermeria, periodisme, gestió, servei social i tecnologies. El conjunt de dades inclou informació disponible en el moment de la matrícula de l'estudiant (itinerari acadèmic, demografia i factors socio-econòmics) i el rendiment acadèmic dels estudiants al final del primer i segon semestre. Les dades es poden utilitzar per a construir models de classificació, per predir l'abandonament i/o l'èxit acadèmic dels estudiants...
+
+# Càrrega de dades
+
+L'anàlisi s'inicia carregant el joc de dades. L'arxiu es pot descarregar a partir del següent [vincle](https://archive-beta.ics.uci.edu/static/public/697/predict+students+dropout+and+academic+success.zip):
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# càrrega del joc de dades
+data<- read.csv2("data.csv")
+```
+
+## Exploració general del conjunt de dades
+
+Es verifica l'estructura del *dataset* resultant. S'observa les diferents variables amb exemples del contingut de cada una d'elles per a les primeres mostres.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# estructura
+str(data)
+```
+
+S'observa que tenim `r ncol(data)` variables i `r nrow(data)` files.
+
+Les variables que es consideraran per a l'estudi, són les següents:
+
++ **Target**: Variable categòrica que indica l'estat de l'estudiant al final de la duració normal del grau (expulsat, matriculat o graduat)
+
+**DIMENSIÓ CARACTERÍSTIQUES GENERALS ESTUDIANT**
+
++ **ï..Marital.status**: Situació matrimonial
++ **Application.mode**: Tipus d'accés
++ **Application.order**: Nombre en la selecció realitzada  (0=primera selecció, fins 99)
++ **Nacionality**: Nacionalitat 
++ **Displaced**: Desplaçat
++ **Educational.special.needs**: Necessitats educatives especials
++ **Debtor**: Amb deutes actius
++ **Tuition.fees.up.to.date**: Pagaments al dia
++ **Gender**: Gènere
++ **Scholarship.holder**: Amb beca escolar
++ **Age.at.enrollment**: Edat de l'estudiant al fer la matricula
++ **International**: Procedència internacional de l'estudiant
+
+**DIMENSIÓ CARACTERÍSTIQUES ACADÈMIQUES ESTUDIANT**
+
++ **Course**: Grau
++ **Daytime.Evening.attendance**: Franja horària de dia
++ **Previous.qualification**: Nivell d'estudis previ
++ **Previous.qualification..grade**: Puntuació (nota) en el nivell d'estudis previ
++ **Admission.grade**: Nota d'accés
+
+**DIMENSIÓ ESTUDIS**
+
++ **Curricular.units.1st.sem..credited**: Crèdits convalidats el 1r semestre
++ **Curricular.units.1st.sem..enrolled**: Crèdits matriculats el 1r semestre
++ **Curricular.units.1st.sem..evaluations**: Crèdits examinats el 1r semestre
++ **Curricular.units.1st.sem..approved**: Crèdits aprovats el 1r semestre
++ **Curricular.units.1st.sem..grade**: Nota mitja el 1r semestre
++ **Curricular.units.1st.sem..without.evaluations**: Crèdits no examinats el 1r semestre
++ **Curricular.units.2nd.sem..credited**: Crèdits convalidats el 2n semestre
++ **Curricular.units.2nd.sem..enrolled**: Crèdits matriculats el 2n semestre
++ **Curricular.units.2nd.sem..evaluations**: Crèdits examinats el 2n semestre
++ **Curricular.units.2nd.sem..approved**: Crèdits aprovats el 2n semestre
++ **Curricular.units.2nd.sem..grade**: Nota mitja el 2n semestre
++ **Curricular.units.2nd.sem..without.evaluations**: Crèdits no examinats el 2n semestre
+
+**DIMENSIÓ FAMILIAR**
+
++ **Mother.s.qualification**: Nivell d'estudis de la mare
++ **Father.s.qualification**: Nivell d'estudis del pare
++ **Mother.s.occupation**: Professió de la mare
++ **Father.s.occupation**: Professió del pare
+
+**DIMENSIÓ SOCIO-ECONOMICA**
+
++ **Unemployment.rate**: Taxa d'atur
++ **Inflation.rate**: Taxa d'inflació
++ **GDP**: Producte interior brut
+
+## Preprocessament i gestió de característiques
+
+El següent pas serà la neteja de dades, mirant si hi ha valors buits o nulls. 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# comprovació NAs
+NA_number<-sum(is.na(data))
+if (NA_number!=0){
+  colSums(is.na(data))
+}else{
+  NA_number
+}
+```
+
+Es verifica el nombre de *NAs* en en el *dataset*. Com que el resultat és **0** no s'ha de realitzar cap acció addicional.
+
+A continuació s'ajusta el tipus de dades de cada variable d'acord al seu contingut. Les variables que no s'ajusten ja es troben en el tipus correcte en relació a les dades que contenen.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# Variables a codificar com a categòriques
+columns<-c("ï..Marital.status","Target","Application.mode","Course","Previous.qualification",
+           "Nacionality","Mother.s.qualification","Father.s.qualification",
+           "Mother.s.occupation","Father.s.occupation")
+data[columns]<-lapply(data[columns],as.factor)
+
+# Variables a codificar com a binàries
+columns<-c("Daytime.evening.attendance.","Displaced","Educational.special.needs","Debtor",
+           "Tuition.fees.up.to.date","Gender","Scholarship.holder","International")
+data[columns]<-sapply(data[columns],as.logical)
+
+# Variables a codificar com a nombres
+columns<-c("Previous.qualification..grade.","Admission.grade","Curricular.units.1st.sem..grade.",
+           "Curricular.units.2nd.sem..grade.","Unemployment.rate","Inflation.rate","GDP")
+data[columns]<-sapply(data[columns],as.numeric)
+```
+
+Es finalitza la fase de pre-processament i gestió de característiques summaritzant les dades i certificant que el *dataset* ja està preparat per a començar l'anàlisi.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# summari
+summary(data)
+```
+
+# Exploració inicial
+
+Es procedeix a fer una primera exploració de les dades a través de la generació de sumaris i histogrames.
+
+## Variables numèriques
+
+```{r echo=TRUE, fig.height=30, fig.width=10, message=FALSE, warning=FALSE}
+# selecció de variables de tipus int i num
+atributs_num = c("Application.order","Previous.qualification..grade.","Admission.grade",
+             "Age.at.enrollment",
+             "Curricular.units.1st.sem..credited.","Curricular.units.2nd.sem..credited.",
+             "Curricular.units.1st.sem..enrolled.","Curricular.units.2nd.sem..enrolled.",
+             "Curricular.units.1st.sem..evaluations.","Curricular.units.2nd.sem..evaluations.",
+             "Curricular.units.1st.sem..approved.","Curricular.units.2nd.sem..approved.",
+             "Curricular.units.1st.sem..grade.","Curricular.units.2nd.sem..grade.",
+             "Curricular.units.1st.sem..without.evaluations.",
+             "Curricular.units.2nd.sem..without.evaluations.",
+             "Unemployment.rate","Inflation.rate","GDP")
+
+histList<- list()
+
+# creació dataset auxiliar
+dataAux= data %>% 
+  select(all_of(atributs_num))
+
+# creació gràfics
+for(i in 1:ncol(dataAux)){
+  col <- names(dataAux)[i]
+  ggp <- ggplot(dataAux, aes_string(x = col)) +
+    geom_histogram(bins = 30, fill = "cornflowerblue", color = "black",
+                   ggtittle = "Comptador d'ocurrències per variable") 
+      histList[[i]] <- ggp
+}
+ multiplot(plotlist = histList, cols = 1)
+```
+
+**Observacions:** 
+
++ **Application.order**: S'observa que la majoria d'estudiants accedeixen a la seva primera opció. Com és d'esperar el nombre d'estudiants que accedeixen en les opcions marcades com a 2, 3... disminueix a mesura que incrementa l'indicador d'opció.
++ **Previous.qualification..grade**: S'observa que les dades es distribueixen de forma simètrica entre `r summary(data$Previous.qualification..grade.)[1]` i `r summary(data$Previous.qualification..grade.)[6]` amb una mitjana a `r round(summary(data$Previous.qualification..grade.)[4],1)`.
++ **Admission.grade**: S'observa que les dades es distribueixen de forma simètrica entre `r summary(data$Admission.grade)[1]` i `r summary(data$Admission.grade)[6]` amb una mitjana a `r round(summary(data$Admission.grade)[4],1)`.
++ **Age.at.enrollment**: S'observa que les dades es distribueixen de manera esbiaixada cap a l'esquerra entre `r summary(data$Age.at.enrollment)[1]` i `r summary(data$Age.at.enrollment)[6]` amb una mediana a `r summary(data$Age.at.enrollment)[3]` i mitjana a `r round(summary(data$Age.at.enrollment)[4],1)`.
++ **Curricular.units.1st.sem..credited.**: Mostra com la gran majoria de valors s'acumulen a 0, doncs és l'habitual que no és convalidin crèdits.
++ **Curricular.units.1st.sem..enrolled.**: Mostra una distribució simètrica amb mitjana en `r round(summary(data$Curricular.units.1st.sem..enrolled.)[4],1)` unitats, mínim en `r summary(data$Curricular.units.1st.sem..enrolled.)[1]` i màxim en `r summary(data$Curricular.units.1st.sem..enrolled.)[6]`.
++ **Curricular.units.1st.sem..evaluations.**: Mostra una distribució simètrica amb mitjana en `r round(summary(data$Curricular.units.1st.sem..evaluations.)[4],1)` unitats, mínim en `r summary(data$Curricular.units.1st.sem..evaluations.)[1]` i màxim en `r summary(data$Curricular.units.1st.sem..evaluations.)[6]`. S'observa que els valors per a la variable **examinats** són inferiors als valors per a la variable **matriculats**. S'interpreta un comportament normal doncs en mitjana, els alumnes es matriculen d'un nombre d'unitats, i posteriorment s'examinen del mateix nombre o menys (si decideixen no assistir a l'examen).
++ **Curricular.units.1st.sem..approved.**: Mostra una distribució bi-modal, amb un punt de concentració en 0 i un altre punt entorn de 6 unitats.
++ **Curricular.units.1st.sem..grade.**: Mostra una distribució simètrica amb centre a 12, tanmateix hi ha una important acumulació de valors en 0 que pot fer referència als alumnes no presentats.
++ **Curricular.units.1st.sem..without.evaluations.**: Mostra una important acumulació en 0, és a dir, tots aquells crèdits que si que s'han evaluat.
++ **Curricular.units.2nd.sem..XX.**: Les variables per al segon semestre mostren totes unes distribucions/acumulacions molt semblants a les homònimes del primer semestre.
++ **Unemployment.rate**, **Inflation.rate** i **GDP**: Mostren una distribució uniforme.
+
+## Variables categòriques
+
+```{r echo=TRUE, fig.height=30, fig.width=10, message=FALSE, warning=FALSE}
+# selecció de variables de tipus factor i lògic (la resta)
+# -atributs_num
+
+histList<- list()
+
+# creació dataset auxiliar
+dataAux= data %>% 
+  select(-atributs_num)
+
+# creació gràfics
+for(i in 1:ncol(dataAux)){
+  col <- names(dataAux)[i]
+  ggp <- ggplot(dataAux, aes_string(x = col)) +
+    geom_bar(fill = "cornflowerblue", color = "black",
+                   ggtittle = "Comptador d'ocurrències per variable") 
+      histList[[i]] <- ggp
+}
+ multiplot(plotlist = histList, cols = 1)
+```
+**Observacions:** 
+
++ **ï..Marital.status**: Un `r percent(summary(data$ï..Marital.status)[1]/length(data$ï..Marital.status))` dels alumnes són solters, mentre que un `r percent(summary(data$ï..Marital.status)[2]/length(data$ï..Marital.status))` estan casats. La resta de categories representen un `r percent(1-(summary(data$ï..Marital.status)[1]+summary(data$ï..Marital.status)[2])/length(data$ï..Marital.status))` dels valors.
++ **Application.mode**: El mètode d'aplicació amb més freqüència és **1** (1a fase - general), seguit per **17** (2a fase - general) i **39** (accés per majors de 23 anys).
++ **Course**: La distribució és generalment uniforme tot i que destaca el curs identificat com a **9500**=*Nursing* (infermeria) per la freqüència més elevada i el curs **33**=*Biofuel Production* (producció de biocombustible) per la menor.
++ **Daytime.evening.attendance**: El `r percent(table(data$Daytime.evening.attendance.)[2]/length(data$Daytime.evening.attendance.))` dels estudiants cursen els estudis en franja horària estàndard, mentre que el `r percent(1-(table(data$Daytime.evening.attendance.)[2]/length(data$Daytime.evening.attendance.)))` ho fan de nit.
++ **Previous.qualification**: La majoria dels alumnes accedeixen des d'educació secundària (**1**). Altres vies d'accés destacables, en molt menor mesura són **39** = curs d'especialització tecnològica i **19** = 3r cicle d'educació bàsica.
++ **Nacionality**: La gran majoria dels estudiants són portuguesos.
++ **Mother.s.qualification**: Destaquen les categories **1** = Educació secundaria, **19** = 3r cicle d'educació bàsica, **37** = 1r cicle d'educació bàsica i **38** = 2n cicle d'educació bàsica.
++ **Father.s.qualification**: Es mostra molt semblant a *Mother.s.qualification*.
++ **Mother.s.occupation**: La categoria amb més frequència és **9** = Treballadors no qualificats seguits de **4** = Personal administratiu i **5** = Personal de servei.
++ **Father.s.occupation**: La categoria amb més frequència és **9** = Treballadors no qualificats seguits de **7** = Treballadors qualifiacts en l'àmbit industrial o de la construcció i **5** = Personal de servei.
++ **Displaced**: El `r percent(table(data$Displaced)[2]/length(data$Displaced))` dels estudiants es consideren desplaçats, mentre que el `r percent(1-(table(data$Displaced)[2]/length(data$Displaced)))` no.
++ **Educational.special.needs**: Només un `r percent(table(data$Educational.special.needs)[2]/length(data$Educational.special.needs))` dels alumnes tenen necessitats educatives especials.
++ **Debtor**: Un `r percent(table(data$Debtor)[2]/length(data$Debtor))` dels alumnes són considerats deutors.
++ **Tuition.fees.up.to.date**: Un `r percent(table(data$Tuition.fees.up.to.date)[2]/length(data$Tuition.fees.up.to.date))` dels alumnes estan al corrent de pagament.
++ **Gender**: El `r percent(table(data$Gender)[1]/length(data$Gender))` dels estudiants són dones.
++ **Scholarsihp.holder**: Un `r percent(table(data$Scholarship.holder)[2]/length(data$Scholarship.holder))` dels alumnes posseeixen algun tipus de beca.
++ **International**: El `r percent(table(data$International)[2]/length(data$International))` dels alumnes es consideren internacionals.
++ **Target**: Un `r percent(table(data$Target)[3]/length(data$Target))` dels alumnes es graduen en el temps estàndard de duració del grau, un `r percent(table(data$Target)[2]/length(data$Target))` encara estan cursant els estudis a la fi d'aquest període estàndard i un `r percent(table(data$Target)[1]/length(data$Target))` han abandonat els estudis prematurament.
+
+## Estudi detallat de la variable gènere
+
+Es proposa estudiar de manera detallada la variable gènere i els efectes d'aquesta variable en altres variables.
+
+### Gènere i nota d'accès
+
+L'anàlisi s'inicia seleccionant un seguit d'atributs interessants i a continuació s'estudien les diferències existents en la variable *Admission.grade* (nota d'admissió) segons si l'estudiant es *MALE* o *FEMALE*.
+
+```{r echo=TRUE, fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
+# selecció de variables
+atributs = c("ï..Marital.status","Daytime.evening.attendance.","Admission.grade",
+             "Gender","Scholarship.holder","Previous.qualification..grade.",
+             "Curricular.units.1st.sem..grade.","Curricular.units.2nd.sem..grade.","Target")
+
+# creació dataset auxiliar
+dataAux= data %>% 
+  select(all_of(atributs))
+
+# modificació variable gènere
+dataAux$Gender<-as.factor(ifelse(dataAux$Gender,"MALE","FEMALE"))
+
+# creació gràfics
+g1<-ggplot(dataAux, aes(x=Gender, y=Admission.grade, color=Gender)) + 
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 0)) +
+  coord_flip()
+g2<-ggplot(dataAux, aes(x=Admission.grade, color=Gender)) + 
+  geom_histogram(fill="white", bins = 50)
+plot_grid(g1, g2, align = "hv", ncol = 1)
+```
+
+Tal i com s'observa en els gràfics superiors:
+
++ No s'aprecien diferencies significatives en les notes d'admissió segons el gènere (especialment indicat en el *boxplot*).
++ Es conclou que el nombre de mostres *FEMALE* és de l'ordre de 3 vegades superior al nombre de mostres *MALE*, segons l'histograma.
++ La distribució de la variable *Admission.grade* és molt semblant independentment del gènere.
+
+### Gènere i beques estudiantils
+
+A continuació s'estudia si existeix diferència en la variable *Scholarship.holder* en funció de la variable gènere.
+
+```{r echo=TRUE, fig.height=5, fig.width=10, message=FALSE, warning=FALSE}
+# càlcul taula de resultats
+counts<-table(dataAux$Scholarship.holder, dataAux$Gender)
+counts
+
+# Percentatges sobre gènere
+print(colPercents(counts))
+
+# Percentatges sobre beques
+print(rowPercents(counts))
+
+# Percentatges generals
+print(totPercents(counts))
+
+
+# creació gràfics
+barplot(prop.table(counts),
+        beside = TRUE,
+        col=colors,
+        main="Genere i beques",
+        legend.text=c("FALSE","TRUE"),
+        xlab ="Resultats",
+        ylab = "Percentatge",
+        ylim=c(0,1))
+```
+
+Més enllà de la visualització gràfica, la taula *column percents* indica que el `r colPercents(counts)[2][1]`% de les estudiants *FEMALE* són posseïdores d'una beca, un percentatge que dobla els estudiants *MALE* on el percentatge de beques és del `r colPercents(counts)[6][1]`%. 
+
+### Gènere i torn d'estudis
+
+```{r echo=TRUE, fig.height=5, fig.width=10, message=FALSE, warning=FALSE}
+# càlcul taula de resultats
+counts<-table(dataAux$Daytime.evening.attendance., dataAux$Gender)
+counts
+
+# Percentatges sobre gènere
+print(colPercents(counts))
+
+# Percentatges sobre torn
+print(rowPercents(counts))
+
+# Percentatges generals
+print(totPercents(counts))
+
+# creació gràfics
+barplot(prop.table(counts),
+        beside = TRUE,
+        col=colors,
+        main="Genere i horari",
+        legend.text=c("Evening","Daytime"),
+        xlab ="Resultats",
+        ylab = "Percentatge",
+        ylim=c(0,1))
+```
+
+Tal i com es pot observar en les taules *column percents* i *row percents*, el percentatge d'alumnes que realitzen els estudis en horari nocturn és similar entre *FEMALES* (`r colPercents(counts)[1]`%) i *MALES* (`r colPercents(counts)[5]`%).
+
+### Gènere i situació matrimonial
+
+També s'estudia la situació matrimonial de l'estudiant en funció de la variable *Gender*.
+
+```{r echo=TRUE, fig.height=5, fig.width=10, message=FALSE, warning=FALSE}
+# modificació variable gènere
+dataAux$ï..Marital.status<-recode_factor(dataAux$ï..Marital.status,"1"="SINGLE","2"="MARRIED",
+                                         "3"="WIDOWER","4"="DIVORCED","5"="FACTO_UNION",
+                                         "6"="LEGALLY_SEPARATED")
+
+# càlcul taula de resultats
+counts<-table(dataAux$ï..Marital.status, dataAux$Gender)
+counts
+
+# Percentatges sobre gènere
+print(colPercents(counts))
+
+# Percentatges sobre situació matrimonial
+print(rowPercents(counts))
+
+# Percentatges generals
+print(totPercents(counts))
+
+# creació gràfics
+ggplot(dataAux,aes(factor(ï..Marital.status), fill=Gender))+
+  geom_bar(stat="count") +
+  theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1))
+
+```
+
+Tal i com s'observa en la taula *column percents*, no s'observen diferències significatives en el percentatge d'alumnes *SINGLE* (solters), *MARRIED* (casats) o altres categories dins el grup de *FEMALE* (dones) o *MALE* (homes).
+
+### Gènere i rendiment escolar del primer curs
+
+El següent anàlisi estudia el rendiment dels estudiants (*Curricular.units.1/2.sem..grade.*) en funció del seu gènere. Inicialment, però s'extreu del set de dades les puntuacions 0, ja que equivalen a "no presentat" i no permeten un estudi concret de la distribució de notes.
+
+```{r echo=TRUE, fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
+# filtrar i modificar variable gènere
+dataAux_1<-data %>%
+  filter(Curricular.units.1st.sem..grade.>0)
+dataAux_1$Gender<-as.factor(ifelse(dataAux_1$Gender,"MALE","FEMALE"))
+
+# filtrar i modificar variable gènere
+dataAux_2<-data %>%
+  filter(Curricular.units.2nd.sem..grade.>0)
+dataAux_2$Gender<-as.factor(ifelse(dataAux_2$Gender,"MALE","FEMALE"))
+
+# creació gràfics
+g1<-ggplot(dataAux_1, aes(x=Gender, y=Curricular.units.1st.sem..grade., color=Gender)) +
+  geom_violin() +
+  labs(title = "Notes 1r semestre", y="Grade", x="") +
+  theme(axis.text.x = element_blank(), legend.direction = "vertical", legend.position = "right") +
+  geom_boxplot(width=0.15, color="black") 
+g2<-ggplot(dataAux_2, aes(x=Gender, y=Curricular.units.2nd.sem..grade., color=Gender)) +
+  geom_violin() +
+  labs(title = "Notes 2n semestre", y="Grade", x="") +
+  theme(axis.text.x = element_blank(), legend.direction = "vertical", legend.position = "right")+
+  geom_boxplot(width=0.15, color="black")
+g3<-ggplot(dataAux_1, aes(x=Curricular.units.1st.sem..grade., color=Gender)) + 
+  geom_histogram(fill="white", bins = 50) 
+g4<-ggplot(dataAux_2, aes(x=Curricular.units.2nd.sem..grade., color=Gender)) + 
+  geom_histogram(fill="white", bins = 50) 
+plot_grid(g1, g2, g3, g4, align = "hv", ncol = 2)
+```
+
+Els gràfics anteriors mostren que no existeixen diferències significatives en el rendiment dels estudiants en el primer i segon semestre segons el seu gènere.
+
+### Gènere i abandonament d'estudis
+
+Finalment s'estudia l'estat de l'estudiant al final del període estàndard del grau (*Target*) en funció de la variable *Gender*.
+
+```{r echo=TRUE, fig.height=5, fig.width=10, message=FALSE, warning=FALSE}
+# càlcul taula de resultats
+counts<-table(dataAux$Gender,dataAux$Target)
+counts
+
+# Percentatges sobre gènere
+print(colPercents(counts))
+
+# Percentatges sobre abandonament
+print(rowPercents(counts))
+
+# Percentatges generals
+print(totPercents(counts))
+
+# creació gràfics
+barplot(prop.table(counts),
+        beside = TRUE,
+        col=colors,
+        main="Genere i gradució",
+        legend.text=c("FEMALE","MALE"),
+        xlab ="Resultats",
+        ylab = "Percentatge",
+        ylim=c(0,1))
+```
+
+En aquest cas es pot concloure que l'index d'abandonament és similar independentment del gènere ja que de tots els estudiants que han abandonat, un `r colPercents(counts)[1][1]`% dels casos són *FEMALE* i un `r colPercents(counts)[2][1]`% son *MALE*. Tanmateix, si es considera per separat *FEMALE* i *MALE*, es pot concloure que al finalitzar el període un `r rowPercents(counts)[1][1]`% de les dones han abandonat mentre que un `r rowPercents(counts)[5][1]`% ja s'han graduat. Centrant-nos en els homes, el `r rowPercents(counts)[2][1]`% han abandonat mentre que només el `r rowPercents(counts)[6][1]`% s'han graduat.
+
+## Correlacions entre variables
+
+Es continua l'anàlisi buscant correlacions entre les diferents variables. Per això es consideren, per un costat, totes les variables numèriques, es calculen els factors de correlació i es grafiquen en un *corrplot*.
+
+```{r echo=TRUE, fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
+# estudi de correlació
+dataAux= data %>% 
+  select(all_of(atributs_num))
+
+# càlcul correlació
+res<-cor(dataAux, use = "pairwise")
+corrplot(res,
+         method = "color",
+         tl.col="black",
+         tl.srt=30,
+         tl.cex = 0.6,
+         order = "original", 
+         number.cex=0.6,
+         sig.level = 0.01,
+         addCoef.col = "black")
+```
+
+Tal i com mostra el gràfic, s'intueix una forta correlació entre les variables *Curricular.units.N.sem..xx.* que es comprova a continuació.
+
+```{r echo=TRUE, fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+# No extraiem "Curricular.units.1st.sem..credited.", "Curricular.units.1st.sem..grade." i  "Curricular.units.1st.sem..without.evaluations."
+atributs_curr = c("Curricular.units.2nd.sem..credited.",
+             "Curricular.units.1st.sem..enrolled.","Curricular.units.2nd.sem..enrolled.",
+             "Curricular.units.1st.sem..evaluations.","Curricular.units.2nd.sem..evaluations.",
+             "Curricular.units.1st.sem..approved.","Curricular.units.2nd.sem..approved.",
+             "Curricular.units.2nd.sem..grade.",
+             "Curricular.units.2nd.sem..without.evaluations.")
+
+# Selecció attributs
+dataAux= data %>% 
+  select(all_of(atributs_curr))
+
+#Càlcul correlació
+res<-cor(dataAux, use = "pairwise")
+corrplot(res,
+         method = "color",
+         tl.col="black",
+         tl.srt=30,
+         tl.cex = 0.75,
+         order = "original", 
+         number.cex=0.75,
+         sig.level = 0.01,
+         addCoef.col = "black")
+```
+
+Amb la presencia d'aquesta forta correlació entre variables s'extreuen la majoria d'aquestes del llistat a estudiar, deixant només 3 variables d'aquest grup en el conjunt inicial per a representar la variança associada a aquestes dades.
+
+```{r echo=TRUE, fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+# Selecció atributs
+dataAux= data %>% 
+  select(all_of(atributs_num)) %>%
+  select(-atributs_curr)
+
+# Càlcul correlació
+res<-cor(dataAux, use = "pairwise")
+corrplot(res,
+         method = "color",
+         tl.col="black",
+         tl.srt=30,
+         tl.cex = 0.75,
+         order = "original", 
+         number.cex=0.75,
+         sig.level = 0.01,
+         addCoef.col = "black")
+```
+
+A partir dels resultats de correlació s'observa que un cert nivell de correlació:
+
++ Positiva entre *Previous.qualification.grade* i *Admission.grade*, fet que és normal ja que ambdues expliquen les prestacions de l'estudiant prèvies a la matriculació.
++ Negativa entre *Unemployement.rate* i *GDP*, fet que també és estàndard si s'observa des del punt de vista macro-econòmic.
+
+També es procedeix a realitzar un estudi de "correlació" de les variables categòriques a partir de la funció *model.matrix* per a la creació d'una matriu que expandeix les variables categòriques a un conjunt de variables *dummy* i posteriorment realitzar l'estudi de correlació.
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+# Selecció atributs
+dataAux= data %>% 
+  select(!atributs_num)
+
+# Creació de la matriu i correlació
+temp<-model.matrix(~0+., data = dataAux) %>%
+  cor(use = "pairwise")
+
+# Conversions
+temp_df<-as.data.frame(temp)
+temp_df[upper.tri(temp_df,diag = TRUE)]<-NA
+
+# Obtenció de parelles correlades
+index <- which(temp_df > 0.6 | temp_df< -0.6, arr.ind = T)
+df <- cbind.data.frame(var1 = rownames(temp_df)[index[,1]], 
+                       var2 = rownames(temp_df)[index[,2]])
+df
+```
+
+El llistat superior mostra les parelles de variables *dummy* que tenen una correlació més extrema que |0.6|. En termes generals es considera un cert nivell de correlació entre les variables:
+
++ *Father.s.qualification* i *Mother.s.qualification*
++ *Father.s.occupation* i *Mother.s.occupation*
+
+# Construcció del conjunt de dades final
+
+A partir de la informació de correlació obtinguda previament es genera el conjunt de dades final eliminant les variables que tenen una alta correlació; és a dir, totes les pertanyents al grup de *Curricular.units.N.sem..xx.* llevat de les 3 variables que s'han inclòs en el diagrama de correlació i que s'ha vist que no presentaven alta correlació amb la resta: *..credited.*, *..grade.* i *..without.evaluations.*. També s'elimina una de cada parella de variables categòriques que potencialment presenten correlació.
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+# selecció de variables
+data_final= data %>% 
+  select(-atributs_curr) %>%
+  select(-c("Mother.s.qualification","Mother.s.occupation"))
+```
+
+Adicionalment, i només per limitar el nombre final de variables quan en les fases posteriors de codificació i normalització es generin variables *dummy*; s'extreuen les variables *Application.mode*, *Previous.qualification*, *Nacionality*, *Father.s.qualification* i *Father.s.occupation*
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+# selecció de variables
+data_final= data_final %>% 
+  select(-c("Application.mode","Previous.qualification", "Nacionality", "Father.s.qualification", "Father.s.occupation"))
+```
+
+# Codificació i Normalització de variables
+
+## Codificació
+
+Per tal d'assimilar les avaluacions (notes) a nivell internacional, es codifica la variable *Grade_X* d'acord amb la informació extreta de wikipedia [Academic grading in Portugal(https://en.wikipedia.org/wiki/Academic_grading_in_Portugal)
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+# codificació
+data_final$Grade_A<-NA
+data_final$Grade_A[data_final$Curricular.units.1st.sem..grade. >= 17.5 & 
+               data_final$Curricular.units.1st.sem..grade.<=20]<-1
+data_final$Grade_A[data_final$Curricular.units.1st.sem..grade. < 17.5]<-0
+
+data_final$Grade_B<-NA
+data_final$Grade_B[data_final$Curricular.units.1st.sem..grade. >= 15.5 & 
+               data_final$Curricular.units.1st.sem..grade.< 17.5]<-1
+data_final$Grade_B[data_final$Curricular.units.1st.sem..grade. < 15.5 | 
+               data_final$Curricular.units.1st.sem..grade. >= 17.5]<-0
+
+data_final$Grade_C<-NA
+data_final$Grade_C[data_final$Curricular.units.1st.sem..grade. >= 13.5 & 
+               data_final$Curricular.units.1st.sem..grade.< 15.5]<-1
+data_final$Grade_C[data_final$Curricular.units.1st.sem..grade. < 13.5 | 
+               data_final$Curricular.units.1st.sem..grade. >= 15.5]<-0
+
+data_final$Grade_D<-NA
+data_final$Grade_D[data_final$Curricular.units.1st.sem..grade. >= 9.5 & 
+               data_final$Curricular.units.1st.sem..grade.< 13.5]<-1
+data_final$Grade_D[data_final$Curricular.units.1st.sem..grade. < 9.5 | 
+               data_final$Curricular.units.1st.sem..grade. >= 13.5]<-0
+
+data_final$Grade_E<-NA
+data_final$Grade_E[data_final$Curricular.units.1st.sem..grade. < 9.5]<-1
+data_final$Grade_E[data_final$Curricular.units.1st.sem..grade. >= 9.5]<-0
+```
+
+Amb aquesta informació i calculant els percentatges de cada graduació sobre el total es pot afirmar que el `r percent(prop.table(table(data_final$Grade_A))[2], accuracy = 0.01)` dels alumnes obtenen una **A**, el `r percent(prop.table(table(data_final$Grade_B))[2], accuracy = 0.01)` obtenen una **B**, el `r percent(prop.table(table(data_final$Grade_C))[2], accuracy = 0.01)` dels alumnes obtenen una **C**, el `r percent(prop.table(table(data_final$Grade_D))[2], accuracy = 0.01)` una **D** i la resta; un `r percent(prop.table(table(data_final$Grade_E))[2], accuracy = 0.01)` una **E**.
+
+## Normalització
+
+Es realitza la normalització de les variables en dos passos: Primer, les variables categòriques es substitueixen per variables *dummies*, després es normalitzen les variables de tipus numèric.
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+# normalització categòriques via dummy
+cat_var<-c("ï..Marital.status","Course","Target")
+dataAux_f<-dummy_cols(data_final, select_columns = cat_var, remove_selected_columns = TRUE)
+```
+
+Ara el dataset té `r ncol(dataAux_f)` variables i `r nrow(dataAux_f)` files.
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+# normalització numèriques
+dataAux<-as.data.frame(sapply(dataAux_f,as.numeric))
+
+# definim la funció de normalització
+ nor <-function(x) { (x-min(x,na.rm = TRUE))/(max(x,na.rm = TRUE)-min(x,na.rm = TRUE))}
+
+#normalització i creació de dataset
+dataAux <- as.data.frame(lapply(dataAux, nor))
+```
+
+# Anàlisi PCA
+
+El procés PCA permet analitzar si es possible representar una part important de la variabilitat del *dataset* amb un nombre menor d'atributs, s'aplica l'anàlisi de components principals al *dataset* final executant la funció **prcomp()**.
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+# càlcul PCA
+pca.data <- prcomp(dataAux)
+summary(pca.data)
+```
+
+A continuació es mostra un histograma per veure el pes de cada atribut sobre el conjunt total de dades:
+
+```{r echo=TRUE, fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+# creació gràfic
+fviz_eig(pca.data,
+         addlabels = FALSE,
+         ncp = 30,
+         barfill = "cornflowerblue")
+
+# valors pròpis
+ev= get_eig(pca.data)
+head(ev, n=10)
+```
+
+La taula de sobre presenta els valors propis, la percentatge de variança que representa cada dimensió i la variança acumulada. Per decidir quants **components principals** seran escollits s'aplica una combinació del mètode de Kàiser (seleccionar tots els components amb variança superior a 1) amb una restricció addicional de que els resultat ha d'explicar com a mínim el 60% de la variança.
+
+Per tal d'explicar el mínim de la variança establert es seleccionen els 9 primers components i per considerar el mètode de Kàiser es realitza el següent càlcul de la variança.
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+# càlcul de la variança
+var_data <- pca.data$sdev^2
+var_data
+```
+
+S'observa que no hi ha variables amb variàncies superiors a 1. Aquest fet podria estar causat per no haver escalat les dades prèviament, així doncs es procedeix a escalar el *dataset* final normalitzat i a repetir el procediment de càlcul.
+
+```{r echo=TRUE, fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+# escalat de dades
+data_scale <- scale(dataAux)
+
+# càlcul PCA
+pca.data_scale <- prcomp(data_scale)
+
+fviz_eig(pca.data_scale,
+         addlabels = FALSE,
+         ncp = 30,
+         barfill = "cornflowerblue")
+
+# valors pròpis
+ev= get_eig(pca.data_scale)
+head(ev, n=20)
+
+# càlcul de la variança
+var_data_scale <- pca.data_scale$sdev^2
+var_data_scale
+```
+
+Després d'analitzar novament la variància i aplicant els mateixos criteris esmentats anteriorment s'obté:
+
++ La variança és superior a 1 per als 22 PC inicials.
++ La variança accumulada supera el 60% quan es consideren 19 PC.
+
+Els valors propis (*eigenvalues*) també es poden utilitzar per determinar el nombre de components principals a mantenir després de la PCA. Un valor propi > 1 indica que els PCs representen més variància de la que representa una de les variables originals de les dades estandarditzades i aquest fet es pot utilitzar com a punt de tall. En el projecte actual aquest criteri indica considerar els `r sum(ev[1]>1)` primers components principals, fet que de manera adicional compleix amb la condició addicional d'explicar més d'un 60% de la variança, tot i això amb l'objectiu de simplificar es mantenen els 19 PC.
+
+## Coordenades 
+
+S'obtenen les coordenades de cada variable representades en la nova base creada a partir de les components principals. El resultat es limita als 5 primers valors per simplificar.
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+var <- get_pca_var(pca.data_scale)
+head(var$coord[,1:19],n=5)
+```
+
+## Qualitat de representació 
+
+Les variables amb un *cos2* elevat estan millor representades en la component principal. Així doncs el següent *corrplot* ens permet observar les variables amb major representació en cada una de les PCs. 
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+corrplot(var$cos2[,1:19], is.corr=FALSE)
+```
+
+A tall d'exemple, el gràfic ens permet observar que les variables *Age.at.enrollment*, *Curricular.unirs.1st.sem..grade.*, *Target_Dropout*, *ï..Marital.status_1* són les que tenen una major representació en **PC1**
+
+## Contribució
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+corrplot(var$contrib[,1:19], is.corr=FALSE)
+```
+
+Les contribucions més importants són per les variables *Course_9070* en **PC19** i *Course_9147* en **PC17**,  *Grade_D* en **PC3** i *Gender* en **PC8**.
+
+També, es visualitzen les dades més importants i les seves correlacions en el següent gràfic de coordenades per a **PC1** i **PC2**
+
+```{r echo=TRUE, fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+fviz_pca_var(pca.data_scale, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+             )
+``` 
+
+Les variables correlacionades positivament apunten totes cap al mateix costat de la trama. Les variables correlacionades negativament apunten cap a costats oposats del gràfic. Així doncs, s'observa que el fet de treure bona nota el 1r semestre (*Curricular.units.1st.sem..grade.*) i graduar-se en el temps que toca (*Target_graduate*) estan correlacionades positivament mentre que aquestes mateixes estan correlacionades negativament amb treure una E (*Grade_E*) i deixar els estudis (*Target Dropout*)
+
+S' observa que les variables que més aporten a les components principals són *Curricular.units.1st.sem..grade.*, *Grade_E*, *Age.at.enrollment* i*Marital_status*, totes elles representades en bona mesura a PC1 i a PC2.
+
+# Anàlisi SVD
+
+El mètode *Singular Value Decomposition* descomposa el set de dades en tres parts:
+
++ U són els vectors singulars de l'esquerra.
++ D és una matriu diagonal.
++ V son els vectors singulars de la dreta
+
+## Anàlisi dels valors singulars
+
+```{r echo=TRUE, fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+# càlcul SVD i gràfic valors singulars
+svd.data <- svd(dataAux)
+plot(svd.data$d, xlab = "Column", ylab = "Singular value")
+```
+
+Per tal de conèixer el percentatge de la variança explicada per cada valor singular i l'acumulat podem realitzar els següents càlculs.
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+# Càlcul variances
+percent(prop.table(svd.data$d^2))
+percent(cumsum(prop.table(svd.data$d^2)))
+```
+
+Així doncs, els 2 primers valors singulars expliquen més del 60% de la variança. 
+
+## Recreació del dataset i comparativa de resultats
+
+### Reducció de la informació
+
+Per tal de recrear el *dataset* a partir d'aquests 2 primers valors singulars reduint la informació i mantenint les dimensions inicials s'ha de reconstruir la matriu de dades multiplicant els vectors singulars esquerra, dreta i la matriu. Aquesta metodologia és útil per a comprimir la informació i/o per eliminar soroll en les dades.
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+# Selecció valors singulars a mantenir
+top<-2
+
+# Regeneració de la matriu de dades
+u<-as.matrix(svd.data$u[,1:top])
+v<-as.matrix(svd.data$v[,1:top])
+d<-as.matrix(diag(svd.data$d)[1:top,1:top])
+
+new_data_info <- u %*% d %*% t(v)
+```
+
+Per a poder comparar les dades inicials amb les dades després d'aplicar SVD per a reduir la informació es proposa com a mètode visual convertir les dades a heatmap.
+
+```{r echo=TRUE, fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+# Visualització
+ggp1 <- dataAux %>%  #original
+  rownames_to_column("X") %>%
+  pivot_longer(-c(X), names_to = "Y", values_to = "Z") %>%
+  ggplot(aes(x=X, y=Y, fill=Z))+ 
+  geom_raster()+
+  scale_fill_viridis_c()+
+  ggtitle("Set de dades original")+
+  theme_void()
+ggp2 <- new_data_info %>%  #despres de SVD
+  as.data.frame() %>%
+  rownames_to_column("X") %>%
+  pivot_longer(-c(X), names_to = "Y", values_to = "Z") %>%
+  ggplot(aes(x=X, y=Y, fill=Z))+ 
+  geom_raster()+
+  scale_fill_viridis_c()+
+  ggtitle("Set de dades després SVD (reducció de la informació)")+
+  theme_void()
+plot_grid(ggp1, ggp2, align = "hv", ncol = 1)
+```
+
+La comparativa visual mostra clarament com es redueix la informació continguda en el set de dades amb l'aplicació de la metodologia SVD.
+
+### Reducció de la dimensionalitat
+
+Per tal de recrear el *dataset* a partir d'aquests 2 primers valors singulars reduint les dimensions s'ha de reconstruir la matriu de dades multiplicant les dades inicials, els vectors singulars dreta i la matriu diagonalitzada. Aquesta metodologia és útil per a optimitzar temps de càlcul quan s'han de realitzar activitats d'aprenentatge automàtic amb sets de dades d'una dimensionalitat elevada.
+
+Per a poder comparar les dades inicials amb les dades després d'aplicar SVD per a reduir la informació es proposa com a mètode visual convertir les dades a heatmap.
+
+```{r echo=TRUE, fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
+rlist <- list()
+
+# dades originals
+ggp <- dataAux %>%
+  rownames_to_column("X") %>%
+  pivot_longer(-c(X), names_to = "Y", values_to = "Z") %>%
+  ggplot(aes(x=X, y=Y, fill=Z))+ 
+  geom_raster()+
+  scale_fill_viridis_c()+
+  ggtitle("original")+
+  theme_void()
+rlist[[1]]<-ggp
+
+# dimensions reduides
+for (i in 2:15){
+  top <- i
+  u<-as.matrix(svd.data$u[,1:top])
+  v<-as.matrix(svd.data$v[,1:top])
+  d<-as.matrix(diag(svd.data$d)[1:top,1:top])
+  new_data_red <- as.matrix(dataAux) %*% v %*% d
+  ggp <- new_data_red %>%
+    as.data.frame() %>%
+    rownames_to_column("X") %>%
+    pivot_longer(-c(X), names_to = "Y", values_to = "Z") %>%
+    ggplot(aes(x=X, y=Y, fill=Z)) + 
+    geom_raster() +
+    scale_fill_viridis_c() +
+    ggtitle(paste("dim = ",i))+
+    theme_void()
+  rlist[[i]]<-ggp
+}
+multiplot(plotlist = rlist, layout = matrix(seq(1:15),ncol = 3,byrow = TRUE))
+```
+
+La comparativa visual mostra clarament com es redueixen les dades amb l'aplicació de la mètodologia SVD.
+
+# Conclusions finals
+
+Les principals conclusions que s'extreuen de l'activitat són:
+
++ La majoria d'estudiants aconsegueixen accedir al grau que han seleccionat com a primera opció.
++ Els alumnes accedeixen amb una nota mitjana dels estudis previs de `r round(summary(data$Previous.qualification..grade.)[4],1)` i una nota mitjana de l'exàmen d'accés de `r round(summary(data$Admission.grade)[4],1)`.
++ L'edat d'accés presenta una distribució esbiaixada cap a l'esquerra entre `r summary(data$Age.at.enrollment)[1]` i `r summary(data$Age.at.enrollment)[6]` amb una mediana a `r summary(data$Age.at.enrollment)[3]` i mitjana a `r round(summary(data$Age.at.enrollment)[4],1)`.
++ El primer semestre els alumnes es matriculen de mitjana a `r round(summary(data$Curricular.units.1st.sem..enrolled.)[4],1)` unitats.
++ Els alumnes són majoritariament solters.
++ El curs amb més matriculacions és **9500**=*Nursing* (infermeria) i el que menys **33**=*Biofuel Production* (producció de biocombustible).
++ El `r percent(table(data$Daytime.evening.attendance.)[2]/length(data$Daytime.evening.attendance.))` dels estudiants cursen els estudis en franja horària estàndard.
++ **Nacionality**: La gran majoria dels estudiants són portuguesos.
++ Només un `r percent(table(data$Educational.special.needs)[2]/length(data$Educational.special.needs))` dels alumnes tenen necessitats educatives especials.
++ El `r percent(table(data$Gender)[1]/length(data$Gender))` dels estudiants són dones.
++ Un `r percent(table(data$Target)[3]/length(data$Target))` dels alumnes es graduen en el temps estàndard de duració del grau, un `r percent(table(data$Target)[2]/length(data$Target))` encara estan cursant els estudis a la fi d'aquest període estàndard i un `r percent(table(data$Target)[1]/length(data$Target))` han abandonat els estudis prematurament.
++ No s'aprecien diferencies significatives en les notes d'admissió en funció del gènere de l'alumne.
++ El nombre de mostres *FEMALE* és de l'ordre de 3 vegades el nombre de mostres *MALE*.
++ El `r colPercents(counts)[2][1]`% de les estudiants *FEMALE* són posseïdores d'una beca, un percentatge que dobla el percentatge d'estudiants *MALE* (amb un percentatge del `r colPercents(counts)[6][1]`%).
++ El percentatge d'alumnes que realitzen els estudis en horari nocturn no presenta diferències significatives entre *FEMALE* (`r colPercents(counts)[1]`%) i *MALE* (`r colPercents(counts)[5]`%).
++ No s'observen diferències significatives en l'estat matrimonial entre estudiants *FEMALE* i *MALE*.
++ No s'observen diferències significatives en el rendiment estudiantil del primer i segon semestre dependents de la variable gènere.
++ L'índex d'abandonament és similar independentment del gènere ja que de tots els estudiants que han abandonat, un `r colPercents(counts)[1][1]`% dels casos són *FEMALE* i un `r colPercents(counts)[2][1]`% son *MALE*. 
++ Al finalitzar el període estàndard per acabar els estudis, un `r rowPercents(counts)[1][1]`% de les dones han abandonat mentre que un `r rowPercents(counts)[5][1]`% ja s'han graduat. Pel que fa als homes, el `r rowPercents(counts)[2][1]`% han abandonat mentre que només el `r rowPercents(counts)[6][1]`% s'han graduat.
++ Les variables *Curricular.units.N.sem..xx.* presenten totes elles una forta correlació les unes amb les altres.
++ S'observa un cert nivell de correlació positiva entre *Previous.qualification.grade* i *Admission.grade*.
++ S'observa un cert nivell de correlació negativa entre *Unemployement.rate* i *GDP*.
++ Pel que fa a les variables categòriques, s'observa certa correlació general entre les parelles *Father.s.qualification* i *Mother.s.qualification* així com *Father.s.occupation* i *Mother.s.occupation*.
++ Pel que fa a la nota mitja del primer semestre, el `r percent(prop.table(table(data_final$Grade_A))[2], accuracy = 0.01)` dels alumnes obtenen una **A**, el `r percent(prop.table(table(data_final$Grade_B))[2], accuracy = 0.01)` obtenen una **B**, el `r percent(prop.table(table(data_final$Grade_C))[2], accuracy = 0.01)` dels alumnes obtenen una **C**, el `r percent(prop.table(table(data_final$Grade_D))[2], accuracy = 0.01)` una **D** i la resta; un `r percent(prop.table(table(data_final$Grade_E))[2], accuracy = 0.01)` una **E**.
++ Quan es normalitza el *dataset* i es generen variables *dummy* les dimensions són: `r ncol(dataAux_f)` variables i `r nrow(dataAux_f)` files.
++ A través d'un procés d'anàlisi de components principals (PCA) es pot reduir la dimensionalitat del *dataset* a 19 components principals mantenint més d'un 60% de la variança.
++ Les variables més representades en les **PC1** i **PC2** són: *Curricular.units.1st.sem..grade.*, *Marital.status_1*, *Grade_E*, *Age.at.enrollment*, *Target_graduate*, *Daytime.evening.attendance*, *Target Dropout* i *Marital.status_2*.
++ De les anteriors, *Curricular.units.1st.sem..grade.* i *Target_graduate* estan correlacionades positivament mentre que aquestes mateixes estan correlacionades negativament amb *Grade_E* i *Target Dropout*.
++ A través de l'anàlisi de valors singulars es pot explicar més del 60% de la variança amb només 2 valors singulars.
++ L'anàlisi dels valors singulars permet reduir la informació del *dataset* eliminant el *soroll* i/o comprimint la informació; tot i que en aquest cas es mantenen les dimensions.
++ L'anàlisi dels valors singulars també permet reduir la dimensionalitat del *dataset*, en aquest cas reduint el nombre d'atributs..
+
+
+**References**
+
++ https://stackoverflow.com/questions/52554336/plot-the-equivalent-of-correlation-matrix-for-factors-categorical-data-and-mi
++ https://www.studyineurope.eu/study-in-portugal/grades
++ https://www.displayr.com/singular-value-decomposition-in-r/
++ https://blogs.oracle.com/machinelearning/post/using-svd-for-dimensionality-reduction

@@ -1,0 +1,1060 @@
+---
+title: 'Mineria de dades: PAC1'
+author: "Autor: Xavier Vizcaino Gascon"
+date: "Abril 2023"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 3
+    includes:
+      in_header: 05.584-PAC-header.html
+  word_document: default
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Exercici 1:
+
+Proposa un projecte complet de mineria de dades. L'organització de la resposta ha de coincidir en les fases típiques del cicle de vida d'un projecte de mineria de dades. **No cal fer les tasques de la fase**. Per a cada fase indica quin és el objectiu de la fase i el producte que s'obtindrà. Utilitza exemples de quines i com podrien ser les tasques. Si hi ha alguna característica que fa diferent el cicle de vida d'un projecte de mineria respecte a d'altres projectes indica-ho.
+
+*****
+## Introducció del projecte
+
+El projecte proposat té com a tasca principal classificar les dades d'una sèrie temporal de tal forma que permeti predir quina serà la situació d'aquesta mateixa sèrie temporal en un futur definit. En altres paraules, es proposa un projecte de mineria de dades en que, a partir de les dades de cotització del ETF (*Exchange Traded Fund*) més popular del Nasdaq, **Invesco QQQ Trust Series 1** i combinant-les amb dades d'altres fonts com les **enquestes de sentiment inversor de la AAII** (*American Association of Individual Investors*) i l'indicador de **por i cobdícia** (*fear & greed index*) de la CNN, permeti classificar si l'evolució estimada de l'actiu esmentat (**QQQ**) en els propers 30 dies (considerarem 22 sessions com l'equivalent a 30 dies) serà: 
+
+* **[md]** molt dolenta: més negativa que -10%
+* **[d]** dolenta: entre -5% i -10%
+* **[lld]** lleugerament dolenta entre: -2.5% i -5%
+* **[n]** neutre: entre -2.5% i +2.5%
+* **[llb]** lleugerament bona: entre +2.5% i +5%
+* **[b]** bona: entre +5% i +10%
+* **[mb]** molt bona: més positiva que +10%
+
+Per tant, la tasca de mineria de dades pretén realitzar una **classificació d'objectes** (cotitzacions diàries) amb potencial de predicció per al valor de l'actiu a 30 dies.
+
+## Obtenció de les dades
+
+Per obtenir les dades s'utilitza:
+
+* L'enllaç de descàrrega de la pàgina web [yahoo finance](https://finance.yahoo.com/quote/QQQ/history?p=QQQ) per QQQ
+* L'enllaç de descàrrega de la web de la [AAII](https://www.aaii.com/sentimentsurvey) per les dades de sentiment inversor
+* Per les dades de l'índex de **por i cobdícia** de la CNN s'utilitza el mòdul [fear_greed_index](https://github.com/DidierRLopes/fear-greed-index) de python
+
+Així doncs en aquesta fase l'objectiu és obtenir les dades per al projecte de mineria de dades i el producte obtingut són els 3 *datasets* per separat.
+
+## Selecció de les dades
+
+L'objectiu d'aquesta fase és seleccionar les dades necessàries per al projecte i el producte resultant és 1 *dataset* amb les dades. Així doncs, el primer pas a realitzar és la càrrega dels arxius i la creació d'un únic *dataset* que contingui les dades provinents de tots tres origens. En aquest punt cal destacar que les cotitzacions del **QQQ** així com les dades de l'índex de **por i cobdícia** estan en format diari amb un identificador en cada fila del tipus *datetime*, per tant la unió (*joint*) es realitza per mitjans d'igualar aquest el camp *data* en ambdós *datasets*.
+
+Per altra banda, les enquestes de la **AAII** es publiquen de manera setmanal. Així doncs per tal de incloure aquesta variable també s'iguala el camp *data* però addicionalment es selecciona la opció d'omplir buits cap avall (*fill downwards*) amb el darrer valor conegut. Aquesta opció fa que els valors de l'enquesta perdurin durant una setmana de manera constant fins que es publiquin els nous.
+
+Per acabar, es seleccionen les dades per a l'estudi. En aquest cas s'utilitza el nombre de files més restrictiu, és a dir, aquell nombre de dades que garanteixi que no existeixen *NAs* per falta de dades en cap columna de qualsevol dels 3 origens mencionats.
+
+## Preparació de les dades
+
+### Neteja de dades
+
+Inicialment, per tal de comprovar la qualitat de les dades s'analitza el nombre de *NAs* per cada variable. També s'obtenen estadístiques bàsiques que puguin ajudar a veure si hi ha dades errònies en el *dataset*. També es generen gràfics de les series temporals per analitzar en detall problemes amb les dades. Habitualment les dades provinents de **yahoo finance** i **AAII** són d'alta qualitat. No es pot afirmar el mateix de les dades obtingudes amb el mòdul *fer_greed_index* ja que s'obtenen a través de tècniques d'*scraping*, metodologia força més sensible i propensa a generar errors en el *dataset* resultant. La millor eina de visualització per a cotitzacions és l'anomenada *candlestick* ja que permet visualitzar 4 components del preu en un sol gràfic (*open*, *close*, *high* i *low*). Amb aquest tipus de visualització serà senzill observar problemes en les dades.
+
+![Exemple de gràfic tipus candlestick](D:\10_UOC\S4_05.584 - Mineria de dades\PAC_1\Documents de treball\AAPL.png)
+
+### Creació d'atributs
+
+A continuació s'analitza si les dades són les necessàries. Així doncs, es procedeix a generar variables addicionals relacionades amb l'anàlisi tècnic de cotitzacions com són el RSI (*Relative Strenght Index*), les mitjanes ponderades de 21, 50, 100 i 200 sessions i el MACD (*Moving Average Converge Diverge*). A partir d'aquestes dades es calculen dues noves variables dicotòmiques que són:
+
+* El preu de tancament (*close*) està per sobre (valor = 1) o per sota (valor = 0) de la mitja de 200 sessions.
+* La pendent de la mitja de 200 sessions es positiva (valor = 1) o negativa (valor = 0). 
+
+Finalment es calcula el retorn (increment/decrement de la cotització) entre qualsevol sessió en el *dataset* i la cotització 30 dies més tard. 
+
+### Transformacions
+
+Per finalitzar la fase de preparació de dades, és necessari assegurar que les dades estan en la forma adequada. Com que les dades de cotització poden ser força variables al llarg d'una sèrie temporal, es converteixen en índexs de retorn o increments/decrements percentuals respecte a la cotització prèvia i es realitza un escalat decimal per garantir que els valors resultants es troben en l'interval 0-1. El mateix mètode s'aplica a les mitjanes de 21, 50, 100 i 200 sessions.
+
+Pel que fa al RSI, aquest és un oscil·lador amb valors entre 0 i 100, per tant també és realitza un escalat decimal. Finalment, els valors del MACD es normalitzen per la diferència. Per altra banda, tan les dades de la **AAII** com les de l'índex de **por i cobdícia** s'indiquen en percentatges així doncs es realitza un escalat decimal. 
+
+La darrera modificació és la creació d'una variable de categòrica que representi la classificació dels retorns en les categòriques esmentades prèviament: md, d, lld, n, llb, b i mb a partir de les dades de retorn a 30 dies.
+
+Amb les dades normalitzades, es pot procedir a fer un anàlisi de components principals, per observar si realitzant un canvi de base és possible representar un alt percentatge de la variabilitat del *dataset* amb un nombre inferior d'atributs, anomenats components principals, i que són combinació dels atributs originaris.
+
+L'objectiu d'aquesta fase és obtenir un *dataset* que permeti la mineria de dades i el resultat és 1 *dataset* amb les dades netes, ampliades i transformades.
+
+## Mineria de dades
+
+L'objectiu d'aquesta fase és la cerca d'un model i el resultat és el model trobat. Llavors, s'inicia la fase de mineria de dades amb el procés de cerca del model. Aquest procés és iteratiu partint d'un model buit i modificant-lo a cada pas per obtenir un model de major qualitat. Es considera que existeix cert coneixement a priori, com ara: quan la cotització està per sobre de la mitja de 200 sessions el més probable és tenir un rendiment **b** o **mb**, mentre que quan la cotització està per sota de la mitja de 200 sessions és més probable tenir un rendiment **d** o **md**.
+
+Pel que fa a la mena de dades, s'ha generat una variable categòrica a mode d'*etiqueta* per a representar la classificació, així doncs es pot considerar la utilització d'un mètode supervisat.
+
+Finalment, en relació al procés de construcció, es desitja fer ús de totes les dades disponibles. Alhora, aquestes aniran incrementant cada nova sessió de cotització. Així doncs, s'utilitza un mètode incremental i es vol simular la dinàmica de les dades en el propi entrenament, utilitzant primer un nombre **N** de dades, en la següent iteració un nombre **N+1** i així successivament fins a utilitzar totes les dades disponibles. 
+
+Amb tot l'esmentat s'estima que pot ser convenient la utilització d'un model de **xarxa neuronal** per a sèries temporals enfocat a la classificació d'objectes. 
+
+## Avaluació i interpretació
+
+L'objectiu de la fase d'avaluació i interpretació és:
+
+* Conèixer la qualitat del model.
+* Interpretar correctament els resultats que se n'extreuen.
+
+El resultat d'aquesta fase és:
+
+* La garantia de qualitat del model.
+* Les preguntes i explicacions oportunes per assegurar que no es realitzen interpretacions errònies o falses dels resultats obtinguts en el procés.
+
+Per tal d'avaluar la qualitat del model es consideren 3 subgrups en les dades (entrenament, validació i avaluació). Les dades d'entrenament s'utilitzen per a definir les variables intrínseques (entrenar) el model. La validació i l'avaluació es poden dur a terme per cada una de les iteracions esmentades en el procés incremental de la fase de mineria de dades. Aquestes es realitzen comparant el nombre d'objectes (cotitzacions) etiquetats correctament (verdaders positius o verdaders negatius) i el nombre d'objectes etiquetats de manera incorrecta (falsos positius o falsos negatius) pel model i comparant-los amb els objectius marcats.
+
+En el cas de les cotitzacions es pot definir un objectiu de qualitat del tipus: *el 50% dels objectes s'han de classificar correctament* i addicionalment *el 80% dels objectes s'han de classificar correctament si les categories es simplifiquen de 7 (md, d, lld, n, llb, b, mb) a 3 (d [inclou md, d i lld], n, b [inclou llb, b, mb])*. Tanmateix a partir d'aquesta darrera condició es pot marcar també com a objectiu de qualitat que *no hi pot haver objectes classificats com a ***d** *que tinguin un resultat ***b** *ni viceversa*.
+
+En relació a la interpretació es necessari analitzar detalladament la informació proporcionada pel model per tal que totes les conclusions extretes siguin correctes.
+
+## Integració de resultats
+
+L'objectiu d'aquesta fase és la utilització dels resultats en el procés típic del sistema d'informació on s'estigui aplicant. Així doncs, en relació al projecte, per cada nou dia de cotització: s'obtenen les dades, es seleccionen i es preparen, s'executa la fase de mineria de dades, el model s'avalua i si la qualitat és la correcte, els resultats obtinguts s'utilitzen per a prendre decisions d'inversió, per exemple: obrint posicions llargues (comprar per vendre després) quan el pronòstic és **b** o **mb** i obrint posicions curtes (vendre per comprar després) quan el pronòstic es **md** o **d**.
+
+Aquestes decisions d'inversió poden ser automatitzades fent que els sistema executi les operacions automàticament o treballant en mode semi-automàtic, fent que el sistema reporti les conclusions del projecte en un format tipus *report* i que sigui l'operador qui, en base al coneixement extret del projecte de mineria de dades, executi les operacions.
+
+*****
+
+# Exercici 2:
+
+A partir del joc de dades utilitzat a l'exemple anterior, realitza les tasques prèvies a la generació d’un model de mineria de dades explicades en els mòduls  "El procés de mineria de dades" i "Preprocessat de les dades i gestió de característiques". Pots utilitzar de referència l'exemple anterior però procura canviar l'enfocament i analitzar les dades en funció de les diferent dimensions que presenten les dades. Opcionalment i valorable es poden afegir a l'estudi de dades d'altres anys per a realitzar comparacions temporals (https://www.nhtsa.gov/file-downloads?p=nhtsa/downloads/FARS/) o afegir altres fets a estudiar relacionats, per exemple el consum de drogues en els accidents (https://static.nhtsa.gov/nhtsa/downloads/FARS/2020/National/FARS2020NationalCSV.zip)
+
+*****
+## Descripció de l'origen del conjunt de dades
+
+A partir de l'exemple anterior, es selecciona un conjunt de dades del [National Highway Traffic Safety Administration](https://www.nhtsa.gov/) . El sistema d'informes d'anàlisi de mortalitat va ser creat als Estats Units per la National Highway Traffic Safety Administration per proporcionar una mesura global de la seguretat a les carreteres. Les dades pertanyen a l'any 2020. És tracta d'un conjunt de registres d'accidents que recullen dades significatives que els descriuen. Tots els accidents tenen alguna víctima mortal com a mínim. L'objectiu analític que es té en ment és entendre la relació entre accidents i altres factors com poden ser: alcohol, drogues, antiguitat de vehicle, velocitat...
+
+## Càrrega de les dades
+
+L'anàlisi s'inicia carregant els diferents fitxers de dades que ens permetran generar el nostre *dataset*.
+
+**NOTA:** L'execució correcta d'aquest fitxer necessita els arxius:
+
++ *accident.csv*
++ *drugs.csv*
++ *vehicle.csv*
+
+Tots els arxius considerats en aquest projecte es poden descarregar a través del següent [vincle](https://static.nhtsa.gov/nhtsa/downloads/FARS/2020/National/FARS2020NationalCSV.zip).
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# carreguem el joc de dades
+path_0 = 'accident.CSV'
+path_1 = 'drugs.CSV'
+path_2 = 'vehicle.CSV'
+accidentData <- read.csv(path_0, row.names=NULL)
+drugsData <- read.csv(path_1, row.names=NULL)
+vehicleData <- read.csv(path_2, row.names=NULL)
+```
+
+A continuació s'uneixen els diferents fitxers per obtenir un sol *dataset*. La unió es realitza en dos passos i s'escull l'opció **all = FALSE** (*natural joint*) per tal de considerar només aquells identificadors d'accidents que apareixen en ambdós origens.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# unió de datasets
+temp<-merge(accidentData, drugsData, all = FALSE)
+data<-merge(temp, vehicleData, all = FALSE)
+```
+
+## Exploració del conjunt de dades
+
+Es verifica l'estructura del *dataset* resultant. S'observa el nombre de columnes amb exemples dels continguts de les files.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+structure = str(data)
+```
+
+S'observa que tenim `r ncol(data)` variables i `r nrow(data)` files. El nombre de columnes resultant, és la suma (sense repetits) de les columnes dels 3 *datasets*: *accidentData*, *drugsData* i *vehicleData*, mentre que el nombre de registres resultants és la combinació dels registres dels tres *datasets*. S'ha d'esmentar que en els *datasets* *drugsData* i *vehicleData* hi pot haver valors repetits en l'identificador de registre d'accident donat que es realitzen proves de drogues a tots els ocupants i es prenen les dades de tots els vehicles involucrats en l'accident.
+
+Les variables que es consideraran per a l'estudi, són les següents:
+
++ **ST_CASE**   identificador d'accident
++ **VEH_NO**    número de vehicle
++ **PER_NO**    número de persona
+
+**FETS A ESTUDIAR**
+
++ **FATALS** morts 
++ **DRUNK_DR** conductors beguts
++ **DRUGRES** resultat del test de drogues
++ **MOD_YEAR** codi any-model del vehicle
++ **MAKE** codi fabricant del vehicle
++ **BUS_USE** codi utilització del bus
++ **TRAV_SP** velocitat abans de l'accident
++ **VE_TOTAL** nombre de vehicles implicats en total 
++ **VE_FORMS** nombre de vehicles en moviment implicats
++ **PEDS**     nombre de vianants implicats
++ **PERSONS**  nombre d'ocupant de vehicle implicats
++ **PERMVIT**  nombre conductors i ocupants implicats
+
+**DIMENSIÓ VEHICLE**
+
++ **NUMOCCS**   nombre ocupants
++ **HIT_RUN**   codi fuga
++ **REG_STAT**    codi estat on el vehicle està registrat
++ **OWNER**   codi de registre del propietari del vehicle
++ **MAKENAME** nom fabricant del vehicle
++ **VPICBODYCLASS**   codi tipus vehicle definit pel fabricant
++ **GVWR_FROM** codi pes màxim autoritzat vehicle sense càrrega
++ **TOW_VEH** codi remolcs
++ **M_HARM** codi event amb més perjudici
+
+**DIMENSIÓ GEOGRÀFICA**
+
++ **STATE** codificació d'estat
++ **STATENAME** nom d'estat
++ **COUNTY** identificador de contat
++ **COUNTYNAME** comtat
++ **CITY** identificador de ciutat
++ **CITYNAME** ciutat
+
+**DIMENSIÓ TEMPORAL**
+
++ **DAY** dia         
++ **DAYNAME** dia repetit
++ **MONTH** mes    
++ **MONTHNAME** nom de mes
++ **YEAR** any
++ **DAY_WEEK** dia de la setmana    
++ **DAY_WEEKNAME** nom de dia de la setmana
++ **HOUR** hora
++ **HOURNAME** franja hora
++ **MINUTE** minut int
++ **MINUTENAME** minut chr
+
+**DIMENSIÓ CONDICIONS ACCIDENT**
+
++ **HARM_EV** codi primer esdeveniment de l'accident que produeixi danys o lesions
++ **HARM_EVNAME** primer esdeveniment de l'accident que produeixi danys o lesions
++ **MAN_COLL** codi de posició dels vehicles 
++ **MAN_COLLNAME** posició dels vehicles
++ **RELJCT1** codi si hi ha àrea d'intercanvi
++ **RELJCT1NAME**  si hi ha àrea d'intercanvi
++ **RELJCT2** codi proximitat encreuament
++ **RELJCT2NAME** proximitat encreuament
++ **TYP_INT** codi tipus d'intersecció
++ **TYP_INTNAME** tipus d'intersecció
++ **WRK_ZONE** codi tipologia d'obres     
++ **WRK_ZONENAME** tipologia d'obres
++ **REL_ROAD**     codi ubicació vehicle a la via
++ **REL_ROADNAME** ubicació vehicle a la via
++ **LGT_COND**     codi condició lumínica
++ **LGT_CONDNAME** condició lumínica
+
+**DIMENSIÓ METEREOLOGIA**
+
++ **WEATHER**     codi temps
++ **WEATHERNAME** : temps
+
+**ALTRES**
+
++ **SCH_BUS** codi si vehicle escolar implicat
++ **SCH_BUSNAME** vehicle escolar implicat
++ **RAIL** codi si dins o a prop pas ferroviari
++ **RAILNAME**  si dins o a prop pas ferroviari
+
+**DIMENSIÓ SERVEI EMERGENCIES**
+
++ **NOT_HOUR** hora notificació a emergències int
++ **NOT_HOURNAME** hora notificació a emergències franja 
++ **NOT_MIN** minut notificació a emergències int
++ **NOT_MINNAME** minut notificació a emergències chr
++ **ARR_HOUR** hora arribada emergències int
++ **ARR_HOURNAME** hora arribada emergències franja
++ **ARR_MIN** minut arribada emergències int
++ **ARR_MINNAME** minut arribada emergències franja 
++ **HOSP_HR** hora arribada hospital int
++ **HOSP_HRNAME** hora arribada hospital franja
++ **HOSP_MN** minut arribada hospital int
++ **HOSP_MNNAME** : minut arribada hospital franja
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+my_columns = c("ST_CASE", "VEH_NO", "PER_NO", "FATALS", "DRUNK_DR", "DRUGRES", "MOD_YEAR", "MAKE", "BUS_USE", "TRAV_SP", "VE_TOTAL", "VE_FORMS", "PEDS", "PERSONS", "PERMVIT", "NUMOCCS", "HIT_RUN", "REG_STAT", "OWNER", "MAKENAME", "VPICBODYCLASS", "GVWR_FROM", "TOW_VEH", "M_HARM", "STATE", "STATENAME", "COUNTY", "COUNTYNAME", "CITY", "CITYNAME", "DAY",  "DAYNAME", "MONTH", "MONTHNAME", "YEAR", "DAY_WEEK", "DAY_WEEKNAME", "HOUR", "HOURNAME", "MINUTE", "MINUTENAME", "HARM_EV", "HARM_EVNAME", "MAN_COLL", "MAN_COLLNAME", "RELJCT1", "RELJCT1NAME", "RELJCT2", "RELJCT2NAME", "TYP_INT", "TYP_INTNAME", "WRK_ZONE", "WRK_ZONENAME", "REL_ROAD", "REL_ROADNAME", "LGT_COND", "LGT_CONDNAME", "WEATHER", "WEATHERNAME", "SCH_BUS", "SCH_BUSNAME", "RAIL", "RAILNAME", "NOT_HOUR", "NOT_HOURNAME", "NOT_MIN", "NOT_MINNAME", "ARR_HOUR", "ARR_HOURNAME", "ARR_MIN", "ARR_MINNAME", "HOSP_HR", "HOSP_HRNAME", "HOSP_MN", "HOSP_MNNAME")
+```
+
+Com que el tamany del *dataset* resultat és força gran, es decideix realitzar una primera selecció d'atributs i deixar només aquells que han estat citats en el llistat anterior (*my_columns*).
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+data<-data[,my_columns]
+```
+
+Amb aquesta darrera modificació el *dataset* resultant té `r ncol(data)` atributs i `r nrow(data)` mostres.
+
+## Preprocessament i gestió de característiques
+
+### Neteja
+
+El següent pas serà la neteja de dades, mirant si hi ha valors buits o nulls. 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+print('NA')
+NA_number<-sum(is.na(data))
+if (NA_number!=0){
+  colSums(is.na(data))
+}else{
+  NA_number
+}
+
+print('Blancs')
+BLK_number<-sum(data=="")
+if (BLK_number!=0){
+  colSums(data=="")
+}else{
+  BLK_number
+}
+```
+
+Es verifica el nombre de *NAs* i el nombre de camps *buits* que hi pugui haver en el *dataset* resultant. Com que en ambdós casos el resultat és 0 no s'ha de realitzar cap acció addicional.
+
+```{r include=FALSE, message=FALSE, warning=FALSE}
+if (!require('ggplot2')) install.packages('ggplot2'); library('ggplot2')
+if(!require('Rmisc')) install.packages('Rmisc'); library('Rmisc')
+if(!require('dplyr')) install.packages('dplyr'); library('dplyr')
+if(!require('xfun')) install.packages('xfun'); library('xfun')
+if(!require('scales')) install.packages('scales'); library('scales')
+if(!require("corrplot")) install.packages("corrplot"); library("corrplot")
+if (!require('tidyverse')) install.packages('tidyverse'); library('tidyverse')
+if (!require('arules')) install.packages('arules'); library('arules')
+if (!require('factoextra')) install.packages('factoextra'); library('factoextra')
+```
+
+## Exploració inicial
+
+Es procedeix a fer una primera exploració de les dades a través de la generació de sumaris i histogrames.
+
+```{r echo=TRUE, fig.height=8, message=FALSE, warning=FALSE}
+# selecció de variables
+atributs = c("ST_CASE", "FATALS","MOD_YEAR","MAKE","TRAV_SP")
+
+histList<- list()
+
+# creació dataset auxiliar
+dataAux= data %>% 
+  select(all_of(atributs)) %>%
+  unique()
+
+summary(dataAux[atributs])
+
+# creació gràfics
+for(i in 2:ncol(dataAux)){
+  col <- names(dataAux)[i]
+  ggp <- ggplot(dataAux, aes_string(x = col)) +
+    geom_histogram(bins = 30, fill = "cornflowerblue", color = "black",
+                   ggtittle = "Comptador d'ocurrències per variable") 
+      histList[[i-1]] <- ggp
+}
+ multiplot(plotlist = histList, cols = 1)
+```
+
+**Observacions:** 
+
+*Nombre de morts*: Com que el *dataset* reporta accidentalitat, tots els registres que apareixen en les dades reporten com a mínim un mort. L'accident més greu reportat és de vuit víctimes i les dades s'acumulen de forma clara a una mort per accident.
+
+*Antiguitat del vehicle*: No es poden extreure conclusions rellevants a partir de l'anàlisi inicial, ja que els vehicles amb antiguitat desconeguda es marquen amb valors iguals a 9998 i 9999. Serà necessari realitzar un estudi més detallat.
+
+*Fabricant del vehicle*: S'observa una distribució homogènia en el rang de valors. Si es cert, que s'observen alguns codis amb una acumulació superior de mostres que s'hauran d'estudiar posteriorment.
+
+*Velocitat abans de l'accident*: S'observa que els valors s'acumulen al voltant de les 50mph. Tot i així la presència dels codis 997, 998 i 999 per indicar el valor desconegut fa que s'hagi de realitzar un estudi a posteriori.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# selecció de variables
+atributs = c("ST_CASE","DRUGRES")
+
+histList<- list()
+
+# creació dataset auxiliar
+dataAux= data %>% 
+  select(all_of(atributs))
+
+summary(dataAux[atributs])
+
+# creació de gràfics
+for(i in 2:ncol(dataAux)){
+  col <- names(dataAux)[i]
+  ggp <- ggplot(dataAux, aes_string(x = col)) +
+    geom_histogram(bins = 30, fill = "cornflowerblue", color = "black",
+                   ggtittle = "Comptador d'ocurrències per variable") 
+      histList[[i-1]] <- ggp
+}
+ multiplot(plotlist = histList, cols = 1)
+```
+
+**Observacions:**
+
+*Tests de drogues:* El valor amb més representació és el 0 (quan no es fa test). En els casos en que si que es realitza test, els resultats presenten una distribució relativament homogènia (a simple vista) que caldrà estudiar detalladament.
+
+A continuació s'aprofundeix en les variables MOD_YEAR, MAKE, TRAV_SP i DRUGRES.
+
+### Antiguitat vehicles [MOD_YEAR]
+
+```{r message=FALSE, warning=FALSE}
+# selecció de variables per a estudi
+atributs = c("ST_CASE", "FATALS","MOD_YEAR","MAKE","TRAV_SP") #"DRUGRES"
+
+# creació dataset auxiliar
+dataAux= data %>% 
+  select(all_of(atributs)) %>%
+  unique()
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# creació variables
+dataAux$MOD_YEAR_CLEAN<-ifelse(dataAux$MOD_YEAR>3000,NA,dataAux$MOD_YEAR)
+dataAux$VHL_AGE<-(2020-dataAux$MOD_YEAR_CLEAN)
+
+summary(dataAux$VHL_AGE)
+
+# creació gràfic
+ggp <- ggplot(dataAux, aes(x = VHL_AGE)) +
+    geom_histogram(binwidth = 2, fill = "cornflowerblue", color = "black",
+                   ggtittle = "Comptador d'ocurrències per variable") +
+  labs(x="ageing [years]")
+ggp
+```
+
+A partir de l'anàlisi de l'antiguitat del vehicle s'observa que la mitjana d'antiguitat dels vehicles accidentats és de `r round(summary(dataAux$VHL_AGE)[4],2)` anys mentre que el màxim és un vehicle de `r round(summary(dataAux$VHL_AGE)[6],2)` anys. Pel que fa a la distribució s'observa que els registres s'acumulen clarament en valors inferiors a 17 anys. Tanmateix cal destacar l'aparició de dues zones d'acumulació, la primera amb un màxim entre els 3-5 anys d'antiguitat i la segona amb el màxim entre els 11 i els 15 anys.
+
+### Fabricants [MAKE]
+
+```{r echo=TRUE, fig.height=9, message=FALSE, warning=FALSE}
+# creació dataset auxiliar de resum
+makers<-dataAux %>%
+  group_by(MAKE) %>%
+  summarise(sum_MAKER=sum(MAKE)) %>%
+  arrange(desc(sum_MAKER))
+
+# creació variable
+makers$percent_MAKER = makers$sum_MAKER/sum(makers$sum_MAKER)
+
+# creació gràfic
+ggp <- ggplot(makers, aes(x=reorder(MAKE, percent_MAKER), y=percent_MAKER))+
+  geom_bar(stat="identity", fill = "cornflowerblue", color = "black")+
+  coord_flip()+
+  labs(x="Manufacturer_code", y="percentage")+
+  scale_y_continuous(labels = scales::percent)
+ggp
+```
+
+Analitzant els codis de fabricant s'observa que els vehicles més accidentats, són els codis 49, 37, 72, 20 i 35. Corresponents a TOYOTA, HONDA, HARLEY-DAVIDSON, CHEVROLET i NISSAN. Per tal de generar coneixement útil a partir d'aquestes dades es necessari conèixer la quota de mercat de cada un dels fabricants abans de poder extreure conclusions més detallades.
+
+### Velocitat [TRAV_SP]
+
+La variable velocitat conté 3 codis especials que s'han de tractar:
+
++ *codi 997*: velocitat més elevada que 151 mph
++ *codi 998*: velocitat no reportada
++ *codi 999*: velocitat desconeguda
+
+Per als codis especials es generen *NAs* a fi d'excloure'ls intencionadament en càlculs posteriors.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# creació de variable
+dataAux$TRAV_SP_CLEAN<-ifelse(dataAux$TRAV_SP %in% c(997,998,999),NA,dataAux$TRAV_SP)
+
+# creació referències
+highway_spd<-c(55,65,70)
+highway_type<-c("Standard", "Four-lane", "Interstate")
+
+summary(dataAux$TRAV_SP_CLEAN)
+
+# creació gràfic
+ggp <- ggplot(dataAux, aes(x = TRAV_SP_CLEAN)) +
+    geom_histogram(binwidth = 5, fill = "cornflowerblue", color = "black",
+                   ggtittle = "Comptador d'ocurrències per variable") +
+  annotate(geom = "vline", x = highway_spd, xintercept = highway_spd, color=c("#FFCC00", "#FF6600", "red"))+
+  annotate(geom = "text", label = highway_type, x = highway_spd, y = 2750, angle = 90, vjust = 1)+
+  labs(x="speed [mph]", y="count")
+ggp
+```
+
+En l'anàlisi de les velocitats anteriors a l'accident s'observa una velocitat mínima de `r summary(dataAux$TRAV_SP_CLEAN)[1]` mph (vehicle aturat) i una velocitat màxima de `r summary(dataAux$TRAV_SP_CLEAN)[6]` mph (màxima velocitat reportada pel sistema). La mitja de `r round(summary(dataAux$TRAV_SP_CLEAN)[4],2)` mph indica que la major part d'accidents reportats van succeir en vies d'alta velocitat. Analitzant la distribució s'observa com llevat de la caixa de 0 mph, la resta de valors s'acumulen al voltant de les 55 mph. 
+
+#### Discretització
+
+Es discretitza la variable *speed* prenent com a referència els límits de velocitat als EUA. (font: [Wikipedia](https://en.wikipedia.org/wiki/Speed_limits_in_the_United_States)) 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# discretització i "labelling"
+dataAux["speed_segment"] <- cut(dataAux$TRAV_SP_CLEAN, breaks = c(0,20,40,55,65,70,250), labels = c("Residential", "Urban", "Std_highway", "Four-lane_highway","Interstate_highway", "Overspeeding"))
+```
+
+Es construeix un gràfic per analitzar com s'agrupen els accidents en els rangs de velocitat discretitzats anteriorment. 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# crea gràfic
+ggp <- ggplot(data=subset(dataAux, !is.na(speed_segment)), aes(x=speed_segment))+
+  geom_bar(fill = "cornflowerblue", color = "black")+
+  ggtitle("Nombre d'accidents per segment de velocitat")+
+  scale_x_discrete(guide = guide_axis(angle = 45))
+ggp
+```
+
+També, com a proposta d'estudi addicional es discretitza la variable utilitzant un algoritme de *clustering*, sense passar arguments, per a que l'algorisme seleccioni el nombre de particions i obtenir una visió dels grups de velocitats a les que es produeixen els accidents.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# calcular "clusters"
+set.seed(2)
+clusters<-table(discretize(dataAux$TRAV_SP_CLEAN, "cluster" ))
+clusters
+
+# crear gràfic
+hist(dataAux$TRAV_SP_CLEAN,
+     main="Franjes de velocitat amb kmeans",
+     xlab="Velocitats [mph]",
+     ylab="Quantitat",
+     col = "cornflowerblue")
+abline(v=discretize(dataAux$TRAV_SP_CLEAN, method="cluster", onlycuts=TRUE),col="red")
+```
+
+S'observa que l'algoritme proporciona `r length(clusters)` grups de velocitats. El primer per les velocitats compreses en l'interval `r names(clusters)[1]`, el segon en l'interval `r names(clusters)[2]` i el tercer en l'interval `r names(clusters)[3]`
+
+### Drogues [DRUGRES]
+
+Es seleccionen les dades i es prepara el dataset.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# selecció de variables per a l'estudi
+atributs = c("ST_CASE", "FATALS","DRUGRES")
+
+# creació de dataset auxiliar
+drugdataAux= data %>% 
+  select(all_of(atributs))
+```
+
+Es grafica el percentatge d'accidents on s'han realitzat tests de detecció de drogues.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# creació de variable
+drugdataAux$drug_test <- ifelse(drugdataAux$DRUGRES %in% c(0,95,999), 0, 1) #testos realitzats
+
+counts <- table(drugdataAux$drug_test)
+
+colors <- c("white", "grey")
+
+# creació de gràfic
+barplot(prop.table(counts),
+        col=colors,
+        main="Accidents on s'han realitzat tests per detecció de drogues", 
+        legend.text=c("No test | unknown","Test"),
+        xlab ="Realitzats",
+        ylab = "Percentatge",
+        ylim=c(0,1))
+```
+
+S'observa que en un `r percent(counts[1]/(counts[1]+counts[2]))` dels casos no es realitza test de drogues mentre que en `r percent(1-(counts[1]/(counts[1]+counts[2])))` si que es fa.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# subset de dades i creació de variables
+drugtestAux<-drugdataAux[drugdataAux$drug_test==1,] #quan es fa test
+drugtestAux$drug_result <- ifelse(drugtestAux$DRUGRES == 1, 0, 1) #resultat negatiu/positiu
+
+counts <- table(drugtestAux$drug_result)
+
+# creació de gràfic
+barplot(prop.table(counts),
+        col=colors,
+        main="Resultats de detecció de drogues",
+        legend.text=c("Negatiu","Positiu"),
+        xlab ="Resultats",
+        ylab = "Percentatge",
+        ylim=c(0,1))
+```
+
+Analitzant els resultats dels test de drogues, s'obté que un `r percent(counts[1]/(counts[1]+counts[2]))` dels tests donen com a resultat negatiu, mentre que un `r percent(1-(counts[1]/(counts[1]+counts[2])))` dona un resultat positiu en drogues. Aquest resultat, tot i que pugui sobtar, no es pot considerar destacable ja que segurament les autoritats realitzen una criba per altres mètodes abans d'aplicar un test de drogues, fent que quan aquest es realitza existeixin clares evidències de la necessitat de dur-lo a terme i sigui normalment per a fonamentar una hipòtesis. 
+
+S'aprofundeix en la relació entre la presència de drogues i el nombre d'accidents.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# creació de variable
+drugdataAux$drug_result <- ifelse(drugdataAux$DRUGRES %in% c(0,1), 0, 1)
+
+# creació dataset auxiliar per a l'estudi
+drug_presence<-drugdataAux %>%
+  unique() %>%
+  group_by(ST_CASE, FATALS) %>%
+  summarise(drug_presence=max(drug_result))
+
+counts <- table(drug_presence$drug_presence)
+
+# creació del gràfic
+barplot(prop.table(counts),
+        col=colors,
+        main="Accidents amb presència de drogues",
+        legend.text=c("No presència","Sí presència"),
+        xlab ="Presencia drogues",
+        ylab = "Percentatge",
+        ylim=c(0,0.8) )
+```
+
+S'observa que en un `r percent(counts[1]/(counts[1]+counts[2]))` dels accidents no hi ha presència de drogues mentre que en un `r percent(1-(counts[1]/(counts[1]+counts[2])))` si que n'hi ha. Aquest fet, d'entrada, resulta sorprenent per mostrar dades més equilibrades del que es podria esperar.
+
+Estudiant en detall el significat de **presència de drogues** en el *dataset* així com les substàncies que es detecten en els tests i que conseqüentment donarien un resultat positiu, no s'invaliden els resultats doncs el llistat de drogues inclou mes enllà dels narcòtics (opi, heroïna, morfina...), els depressius (benzodiazepines, GHB, Kava...), estimulants (amfetamines, cafeïna, cocaïna, nicotina...), alucinògens (LSD, extasiïs, ketamina...), cannabis i derivats, esteroides anabolitzants ... i es recomana un estudi més detallat per tal de validar els resultats.
+
+A continuació s'estudia la relació entre mortalitat i presència de drogues.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# càlcul de casos
+counts <- table(drug_presence$drug_presence, drug_presence$FATALS)
+prop.counts<-prop.table(counts)
+
+#crear gràfic
+barplot(prop.counts,
+        beside = TRUE,
+        col = colors, 
+        ylim = c(0, 1),
+        axes = TRUE,
+        xlab = "Nombre de morts",
+        ylab = "Percentatge",
+        main = "Distribució d'accidents per morts i presència de drogues",
+        legend = c("No drogues", "Drogues"), 
+        fill = colors)
+```
+
+El gràfic anterior sembla indicar que no hi hagi una relació clara entre mortalitat i presència de drogues; però si es realitza un zoom en les dades mostrant els accidents amb més d'una víctima s'obté el gràfic següent.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# crear gràfic amb zoom en les dades
+barplot(prop.counts[,-1],
+        beside = TRUE,
+        col = colors, 
+        ylim = c(0, 0.05),
+        axes = TRUE,
+        xlab = "Nombre de morts",
+        ylab = "Percentatge",
+        main = "Distribució d'accidents per morts i presència de drogues",
+        legend = c("No drogues", "Drogues"), 
+        fill = colors)
+```
+
+Amb aquest *zoom* s'observa que la presència de drogues incrementa el percentatge en tots el casos.
+En canvi, com s'ha vist anteriorment aquest fet no es mostra quan el nombre de víctimes és exactament 1.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#càlcul de casos
+counts <- table(drug_presence$FATALS, drug_presence$drug_presence)
+
+# creació de gràfic
+barplot(prop.table(counts),
+        main="Distribució d'accidents per presència de drogues i nombre de morts",
+        xlab="0 No Drogues 1 Drogues",
+        col=rainbow(8),
+        ylab="Percentantge",                             
+        legend = rownames(counts),
+        beside=TRUE,
+        ylim=c(0,0.6))
+```
+
+Finalment per tal d'estudiar la relació entre presència de drogues per estat s'analitzen les dades amb els objectius d'obtenir per cada estat:
+
++ El nombre de fatalitats
++ El nombre d'accidents totals
++ El nombre d'accidents amb presència de drogues
++ El percentatge d'accidents amb presència de drogues sobre el total d'accidents 
+
+i finalment extreure els 10 estats amb un percentatge més elevat.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# creació de variable
+data$drug_result <- ifelse(data$DRUGRES %in% c(0,1), 0, 1)
+
+# creació de dataset auxiliar
+drug_presence<-data %>%
+  unique() %>%
+  group_by(ST_CASE, FATALS, STATENAME) %>%
+  summarise(drug_presence=max(drug_result)) %>%
+  group_by(STATENAME) %>%
+  summarise(FATALS=sum(FATALS), PRESENCE=sum(drug_presence), n=n()) %>%
+  mutate(PERCENT=PRESENCE/n) %>%
+  arrange(-PERCENT)
+
+# creació llistat
+states<-drug_presence[1:10,1]
+```
+
+Es comprova si existeix relació entre l'estat (considerant els 10 estats amb més percentatge de presència) on ha passat l'accident i la presència de drogues.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# subset de dades
+dataST10=subset(data,data$STATENAME %in% states$STATENAME)
+files=dim(dataST10)[1]
+
+# creació gràfic
+ggplot(data=dataST10[1:files,],aes(x=drug_result,fill=STATENAME))+
+  geom_bar()+
+  ggtitle("Top 10 estats amb més presència")+
+  labs(x="Presència de drogues")
+```
+
+Per validar resultats pel mètode de comparació es genera un gràfic amb els 10 estats amb un percentatge menor.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# creació llistat
+states<-tail(drug_presence,10)[,1]
+
+# subset de dades
+dataST10=subset(data,data$STATENAME %in% states$STATENAME)
+files=dim(dataST10)[1]
+
+# creació de gràfic
+ggplot(data=dataST10[1:files,],aes(x=drug_result,fill=STATENAME))+
+  geom_bar()+
+  ggtitle("Top 10 estats amb menys presència")+
+  labs(x="Presència de drogues")
+```
+
+Comparant ambdós gràfics s'observa que en els estats amb un major percentatge, els resultats de presència de drogues per estat son força similars fins i tot superiors quan hi ha presència de drogues. Per altra banda, en els estats amb menor percentatge les diferències entre ambdos casos (presència vs. no_presència) són molt més evidents en tots els estats. 
+
+## Correlacions entre variables
+
+Es continua l'anàlisi buscant correlacions entre el nombre de defuncions per accident i algunes de les diferents variables estudiades fins el moment:
+
++ **FATALS** morts 
++ **DRUGRES** resultat del test de drogues
++ **MOD_YEAR** codi any-model del vehicle
++ **TRAV_SP** velocitat abans de l'accident
++ **NUMOCCS**   nombre ocupants
++ **GVWR_FROM** codi pes màxim autoritzat vehicle sense càrrega
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# selecció de variables
+n = c("ST_CASE","MOD_YEAR","TRAV_SP","NUMOCCS","GVWR_FROM", "FATALS")
+
+# creació dataset auxiliar
+dataAux= data %>% 
+  select(all_of(n)) %>%
+  unique() %>%
+  mutate(ageing=2020-ifelse(MOD_YEAR>3000,NA,MOD_YEAR)) %>%
+  mutate(speed=ifelse(TRAV_SP>250,NA,TRAV_SP)) %>%
+  mutate(gvwr=ifelse(GVWR_FROM>20,NA,GVWR_FROM)) %>%
+  select(!c(ST_CASE, MOD_YEAR, TRAV_SP,GVWR_FROM))
+
+FATALS<-dataAux$FATALS
+dataAux<-dataAux %>% select(!FATALS)
+
+# creació de gràfics
+cList<- vector('list', ncol(dataAux))
+for(i in seq_along(dataAux)){
+  message(i)
+cList[[i]]<-local({
+  i<-i
+  col <-log(dataAux[[i]])
+  ggp<- ggplot(data = dataAux, aes(x = FATALS, y=col)) + 
+    geom_point(color = "gray30") + 
+    geom_smooth(method = lm,color = "firebrick") + 
+    theme_bw() + 
+    xlab("Morts") + 
+    ylab(names(dataAux)[i])
+  })
+}
+multiplot(plotlist = cList, cols = 3)
+```
+
+A partir de dels gràfics s'observa:
+
++ Que el nombre d'ocupants, la velocitat i la massa màxima autoritzada del vehicle són variables que incrementen el nombre de fatalitats en accident.
++ Per contra, l'antiguitat del vehicle és una variable que disminueix el nombre de fatalitats.
+
+A partir d'algunes variables d'interès es genera la taula de correlacions:
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+factors= dataAux %>% add_column(FATALS)
+
+# estudi de correlació
+res<-cor(factors, use="pairwise")
+corrplot(res,method="color",
+         tl.col="black",
+         tl.srt=30,
+         order = "AOE", 
+         number.cex=0.75,
+         sig.level = 0.01,
+         addCoef.col = "black")
+```
+
+De la taula superior s'extreu un nivell de correlació molt baix entre totes les variables seleccionades.
+
+## Construcció de conjunt de dades final
+
+Els nivells de correlació baixos entre totes les variables seleccionades indiquen que no hi ha presència de variables altament correlacionades entre si que calgui eliminar del *dataset*. Per altra banda, s'aprofita la oportunitat per afegir algunes variables addicionals i tornar a comprovar correlacions.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# selecció de variables
+n = c("ST_CASE","drug_result", "MOD_YEAR","TRAV_SP","NUMOCCS","GVWR_FROM", "FATALS", "LGT_COND", "WEATHER", "DAY", "MONTH", "DAY_WEEK", "HOUR")
+
+# creació dataset auxiliar
+data_final= data %>% 
+  select(all_of(n)) %>%
+  unique() %>%
+  mutate(ageing=2020-ifelse(MOD_YEAR>3000,NA,MOD_YEAR)) %>%
+  mutate(speed=ifelse(TRAV_SP>250,NA,TRAV_SP)) %>%
+  mutate(gvwr=ifelse(GVWR_FROM>20,NA,GVWR_FROM)) %>%
+  select(!c(MOD_YEAR, TRAV_SP,GVWR_FROM))
+
+# estudi de correlació
+res<-cor(data_final, use="pairwise")
+corrplot(res,method="color",
+         tl.col="black",
+         tl.srt=30,
+         order = "AOE", 
+         number.cex=0.75,
+         sig.level = 0.01,
+         addCoef.col = "black")
+```
+
+## Codificació
+
+Per tal d'analitzar si el nombre d'accidents amb fatalitats és superior en període de vacaces es codifica la variable *holidays*. S'assigna 1 quan el valor *date*, generat a partir dels diferents components de la data del *dataset*, pertany a les dates marcades com a vacances federals en el vector [holidays](https://www.officeholidays.com/countries/usa/2020) i 0 quan el valor *date* no està entre les vacances. Posteriorment es realitza el càlcul d'incidència i es relativitzen els resultats en funció del nombre de dies de vacances i de no-vacances.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# vector amb dies de vacances
+holidays<-as.Date(c("01-01-2020", "20-01-2020", "17-02-2020", "25-05-2020", "03-07-2020", "04-07-2020", "06-07-2020", "07-09-2020", "12-10-2020", "11-11-2020", "26-11-2020", "27-11-2020", "24-12-2020", "25-12-2020", "31-12-2020"),"%d-%m-%Y")
+
+# creació de variable 
+data_final<-data_final %>%
+  mutate(date=as.Date(with(data_final, paste(DAY, MONTH, 2020, sep = "-")), "%d-%m-%Y"))
+
+# codificació
+data_final$holidays<-NA
+data_final$holidays[data_final$date %in% holidays]<-1
+data_final$holidays[!data_final$date %in% holidays]<-0
+
+# creació dataset auxiliar
+dataAux= data_final %>% 
+  select(ST_CASE, holidays, FATALS) %>%
+  unique()
+
+# calcul nombre accidents
+counts<-table(dataAux$holidays)
+
+# relativitzar accidents per nombre de dies
+counts[1]<-counts[1]/(366-length(holidays))
+counts[2]<-counts[2]/length(holidays)
+
+# creació del gràfic
+barplot(prop.table(counts),
+        col=colors,
+        main="Accidents en dia festiu",
+        legend.text=c("No festiu","Sí festiu"),
+        xlab ="Festius",
+        ylab = "Percentatge",
+        ylim=c(0,0.8) )
+```
+
+Els resultats mostren que el `r percent(prop.table(counts)[1],accuracy = 0.01)` dels accidents succeeixen en dies no-festius, mentre que `r percent(prop.table(counts)[2],accuracy = 0.01)` succeeixen en dies festius. Així doncs es pot afirmar que l'any 2020 l'accidentalitat (amb víctimes) va ser major en dies festius que no-festius.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# càlcul nombre fatalitats
+counts<-table(dataAux$holidays, dataAux$FATALS)
+
+# relativitzar fatalitats per nombre de dies
+counts[1,]<-counts[1,]/(366-length(holidays))
+counts[2,]<-counts[2,]/length(holidays)
+
+# creació del gràfic
+barplot(prop.table(counts),
+        beside=TRUE,
+        col=colors,
+        main="Fatalitats en dia festiu",
+        legend.text=c("No festiu","Sí festiu"),
+        xlab ="Festius",
+        ylab = "Percentatge",
+        ylim=c(0,0.5) )
+```
+
+Si en lloc d'accidentalitat s'analitza la fatalitat (nombre de morts), s'observa que en termes generals la fatalitat és superior en festiu.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# creació del gràfic
+barplot(prop.table(counts)[,-1],
+        beside=TRUE,
+        col=colors,
+        main="Fatalitats en dia festiu",
+        legend.text=c("No festiu","Sí festiu"),
+        xlab ="Festius",
+        ylab = "Percentatge",
+        ylim=c(0,0.04) )
+```
+
+Realitzant novament un *zoom* en les dades per analitzar els casos amb més d'una víctima, s'observa que en termes generals la fatalitat incrementa en dies festius.
+
+## Normalització
+
+Es parteix de la suposició que l'algoritme de mineria de dades que es vol aplicar posteriorment requereix l'entrada de dades normalitzades, d'aquesta forma s'analitzen novament els rangs de les variables i es procedeix a la normalització.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+summary(data_final)
+```
+
+Com que el nombre de *NAs* en la variable *speed* és significatiu, es procedeix a eliminar la variable del *dataset* final.
+Pel que fa a les variables *ageing* i *gvwr* que també contenen *NAs* però en menor quantitat, s'eliminen les files que com a mínim contenen 1 *NA*.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# modificacions finals en el dataset
+data_final<-data_final %>%
+  select(-speed) %>%
+  drop_na()
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# definim la funció de normalització
+ nor <-function(x) { (x-min(x,na.rm = TRUE))/(max(x,na.rm = TRUE)-min(x,na.rm = TRUE))}
+
+# selecció de variables
+n = c("drug_result","NUMOCCS","FATALS","LGT_COND","WEATHER","DAY","MONTH","DAY_WEEK","ageing", "gvwr", "holidays")
+dataAux<- data_final %>% select(all_of(n))
+
+#normalització i creació de dataset
+data_final_nor <- as.data.frame(lapply(dataAux, nor))
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+summary(data_final_nor)
+```
+
+## Procés de PCA 
+
+Per tal d'analitzar si es possible representar una part important de la variabilitat del *dataset* amb un nombre menor d'atributs, s'aplica l'anàlisi de components principals al *dataset* final executant la funció **prcomp()**.
+
+```{r}
+# càlcul PCA
+pca.data <- prcomp(data_final_nor)
+summary(pca.data)
+```
+
+A continuació es mostra un histograma per veure el pes de cada atribut sobre el conjunt total de dades:
+
+```{r}
+# creació gràfic
+fviz_eig(pca.data,
+         addlabels = TRUE,
+         barfill = "cornflowerblue")
+
+# valors pròpis
+ev= get_eig(pca.data)
+ev
+```
+
+Per tal d'observar com s'acumula la variança es genera la següent taula.
+
+```{r}
+# preparació de les dades
+explained_variance_ratio <- summary(pca.data)[["importance"]]['Proportion of Variance',]
+cumsum <- cumsum(explained_variance_ratio)
+evr<-rbind(explained_variance_ratio, cumsum)
+evr
+```
+
+Per decidir quants **components principals** seran escollits s'aplica una combinació del mètode de Kàiser (seleccionar tots els components amb variança superior a 1) amb una restricció addicional de que els resultat ha d'explicar com a mínim el 75% de la variança.
+
+Per aquesta última condició es seleccionen els 5 primers components i per considerar el mètode de Kàiser es realitza el següent càlcul.
+
+```{r}
+# càlcul de la variança
+var_data <- pca.data$sdev^2
+var_data
+```
+
+S'observa que no hi ha variables amb variàncies superiors a 1. *Aquest fet podria estar causat per no haver escalat les dades prèviament*, així doncs es procedeix a escalar el *dataset* final normalitzat i a repetir el procediment de càlcul.
+
+```{r}
+# escalat de dades
+data_scale <- scale(data_final_nor)
+
+# càlcul PCA
+pca.data_scale <- prcomp(data_scale)
+
+explained_variance_ratio <- summary(pca.data_scale)[["importance"]]['Proportion of Variance',]
+cumsum <- cumsum(explained_variance_ratio)
+evr<-rbind(explained_variance_ratio, cumsum)
+evr
+
+# càlcul de la variança
+var_data_scale <- pca.data_scale$sdev^2
+var_data_scale
+```
+
+Després d'analitzar novament la variància i aplicant els mateixos criteris esmentats anteriorment, es consideren els 8 primers components principals tot i que a partir de PC5 les variances ja son inferiors a 1.
+
+Novament, es mostra l'histograma de percentatge de variància explicada, ara però, amb les dades escalades:
+
+```{r}
+fviz_eig(pca.data_scale,
+         addlabels = TRUE,
+         barfill = "cornflowerblue")
+
+# valors pròpis
+ev = get_eig(pca.data_scale)
+ev
+```
+
+Els valors propis (*eigenvalues*) també es poden utilitzar per determinar el nombre de components principals a mantenir després de la PCA. Un valor propi > 1 indica que els PCs representen més variància de la que representa una de les variables originals de les dades estandarditzades i aquest fet es pot utilitzar com a punt de tall. En el projecte actual aquest criteri indica considerar els `r sum(ev[1]>1)` primers components principals, però aquesta selecció no compliria amb la condició addicional d'explicar més d'un 75% de la variança, per tant finalment són 8 els PC a mantenir.
+
+### Coordenades 
+
+```{r}
+var <- get_pca_var(pca.data_scale)
+var$coord[,1:8]
+```
+
+### Qualitat de representació 
+
+```{r}
+var$cos2[,1:8]
+```
+```{r}
+corrplot(var$cos2[,1:8], is.corr=FALSE)
+```
+
+Les variables amb un *cos2* elevat estan millor representades en la component principal. Així doncs es pot observar que les variables *gvwr*, *drug_result* i *ageing* estan força representades en la **PC1**, *MONTH* i *holidays* en **PC2**, *DAY* en **PC4** i així successivament.
+
+### Contribució
+
+```{r}
+var$contrib[,1:8]
+corrplot(var$contrib[,1:8], is.corr=FALSE)
+```
+
+Les contribucions més importants són per les variables *FATALS* en **PC5** i *DAY* en **PC7** i **PC4**.
+Es visualitzen les dades més importants i les seves correlacions en el següent gràfic de coordenades per a **PC1** i **PC2**
+
+```{r}
+fviz_pca_var(pca.data_scale, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+             )
+``` 
+
+Les variables correlacionades positivament apunten totes cap al mateix costat de la trama. Les variables correlacionades negativament apunten cap a costats oposats del gràfic. Així doncs, s'observa que el resultat del test de drogues (*drug_result*) i l'antiguitat del vehicle (*ageing*) estan correlacionades positivament mentre que la massa màxima autoritzada (*gvwr*) i el resultat del test de drogues (*drug_result*) estan correlacionades negativament. Aquestes conclusions estan alineades amb les correlacions observades en l'estudi de correlació..
+
+S' observa que les variables que més aporten a les components principals són **gvwr**, **drug_result** i **ageing** per la **PC1** i **MONTH**, **holidays** i **LGT_COND** aquesta darrera en menor mesura per a la **PC2**.
+
+## Conclusions
+
+Las dades estudiades contemplen accidents de tràfic amb víctimes a la xarxa d’autopista dels EUUU a llarg del 2020. Tots els registres tenen un identificador únic d’accident i una sèrie de fets principals com nombre de morts, vehicles, velocitat abans de l'accident, data del sinistre, resultat del test de drogues... es consideren també altres dades de suport relacionades amb la ubicació geogràfica, temporal, condicions específiques de l'accident, condicions meteorològiques...
+
+Les dades estan netes i ben documentades. No plantegen greus problemes de camps amb valors nuls o buits, però si que s'ha d'anar en compte amb valors extrems utilitzats per a codificar situacions especials com la manca d'informació.
+
+A partir de les dades és pot afirmar que l'antiguitat mitjana dels vehicles accidentats es de 11 anys. Mostrant un nombre elevat d'accidents en vehicles amb una antiguitat entre 3 i 5 anys i també en vehicles amb una antiguitat entre 11 i 15 anys.
+
+Els fabricants amb més accidentalitat són TOYOTA, HONDA, HARLEY-DAVIDSON, CHEVROLET i NISSAN, però és necessari relativitzar els resultats obtinguts en funció del *market share* de cada fabricant per extreure'n conclusions vàlides.
+
+Pel que fa a la velocitat, les dades indiquen un nombre elevat d'accidents amb velocitat igual a 0 (vehicle aturat) i un nombre elevat d'accidents en un rang de velocitats entre 45 i 60 mph. Discretitzant el factor velocitat, la franja amb més accidentalitat és la situada per sobre de la velocitat màxima de vies urbanes i per sota de la velocitat màxima en autopistes estàndard.
+
+Pel que fa al consum de drogues, en gairebé un 60% dels accidents no es realitza test de drogues. En el ~40% restant on si és realitza test més d'un 70% dels resultats són positius. Aquest fet fa intuir que hi ha un bon cribatge per part de les autoritats pel que fa a la realització de tests de drogues.
+
+Si s'analitza el nombre de fatalitats (persones mortes per accident) en funció de si hi ha presència de drogues és pot concloure que per accidents amb més d'una víctima, la presència de drogues suposa un increment en la fatalitat.
+
+Estudiant el nombre d'accidents amb víctimes en funció de la presència de drogues i del estat on succeeix l'accident es pot concloure que els resultats són molt heterogenis, especialment si s'observen els estats amb més percentatge de presència de drogues i es comparen amb els estats amb menys percentatge.
+
+També s'estudia l'accidentalitat i la fatalitat en festius, indicant que en ambdós casos (nombre d'accidents i nombre de defuncions) els resultats són lleugerament superiors en dies festius.
+
+Finalment amb el càlcul dels components principals i les restriccions imposades per a la selecció de PCs, s'obtenen noves variables (combinació de les variables inicials) que permeten explicar més d'un 75% de la variança amb 8 components, enlloc dels 11 inicials.
+
+**Referències consultades**
+
++ Rstudio cheatsheets
++ https://www.datacamp.com/tutorial/pca-analysis-r

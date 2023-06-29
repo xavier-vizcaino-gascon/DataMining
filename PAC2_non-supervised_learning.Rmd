@@ -1,0 +1,564 @@
+---
+title: 'Mineria de dades: PEC2 - Mètodes no supervisats'
+author: "Autor: Xavier Vizcaino"
+date: "Maig 2023"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 4
+    includes:
+      in_header: 05.584-PAC-header.html
+  word_document: default
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+******
+# Exercicis
+******
+
+Els exercicis es realitzaran sobre la base del joc de dades *Hawks* present en el paquet R *Stat2Data*.  
+
+Els estudiants i el professorat del Cornell College a Mount Vernon, Iowa, van recollir dades durant molts anys al mirador de falcons de l'estany MacBride, prop d'Iowa City, a l'estat d'Iowa. El joc de dades que analitzem aquí és un subconjunt del conjunt de dades original, utilitzant només aquelles espècies per a les que hi havia més de 10 observacions. Les dades es van recollir en mostres aleatòries de tres espècies diferents de falcons: Cua-roja, Esparver i Falcó de Cooper.  
+
+Hem seleccionat aquest joc de dades per la seva semblança amb el joc de dades *penguins* i pel seu potencial alhora d'aplicar-li algoritmes de mineria de dades no supervisats. Les variables numèriques en què us basareu són: *Wing*, *Weight*, *culmen*, *Hallux*
+
+```{r message= FALSE, warning=FALSE}
+if (!require('Stat2Data')) install.packages('Stat2Data'); library('Stat2Data')
+data("Hawks")
+summary(Hawks)
+```
+******
+## Exercici 1
+Presenta el joc de dades, nom i significat de cada columna, així com les distribucions dels seus valors.  
+Addicionalment realitza un estudi similar al dels exemples 1.1 i 1.2
+
+******
+
+### Presentació
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+if (!require('dplyr')) install.packages('dplyr'); library('dplyr')
+if (!require('ggplot2')) install.packages('ggplot2'); library('ggplot2')
+if(!require('Rmisc')) install.packages('Rmisc'); library('Rmisc')
+if (!require('cluster')) install.packages('cluster'); library(cluster)
+if (!require('fpc')) install.packages('fpc'); library('fpc')
+if(!require('scales')) install.packages('scales'); library('scales')
+if (!require('dbscan')) install.packages('dbscan'); library('dbscan')
+```
+
+Inicialment es mostra el tipus de dades assignat a cada variable en el procés de càrrega, així com les primeres observacions.
+
+```{r message= FALSE, warning=FALSE}
+set.seed(2)
+str(Hawks)
+```
+
+El *dataset* en estudi conté `r ncol(Hawks)` variables i `r nrow(Hawks)` files. Les variables contingudes en el *dataset* són les següents:
+
++ **Month**   Número del mes en l'any
++ **Day**   Dia en el mes
++ **Year**    Any
++ **CaptureTime**   Hora de la captura en format (HH:MM)
++ **ReleaseTime**   Hora de l'alliberament en format (HH:MM)
++ **BandNumber** Número de l'identificador
++ **Species**   Codi espècie: CH=Cooper's, RD=Red-tailed, SS=Sharp-Shinned
++ **Age**   Codi adult: A=Adult, I=Inmadur
++ **Sex**   Codi gènere: F=Femella, M=Mascle
++ **Wing**    Longitud (en mm) de la ploma principal de l'ala
++ **Weight**    Pes de l'animal (en g)
++ **Culmen**    Longitud (en mm) de la part superior del bec fins la inserció amb el crani
++ **Hallux**    Longitud (en mm) de l'urpa posterior
++ **Tail**    Mesura (en mm) relacionada amb la longitud de la cua
++ **StandardTail**    Mesura estandaritzada de la longitud de la cua
++ **Tarsus**    Longitud (en mm) de l'òs principal de la pota
++ **WingPitFat** Quantitat de greix en la zona de la inserció de l'ala
++ **KeelFat** Quantitat de greix en la zona de l'esternon
++ **Crop**
+
+L'operació *summary()* mostra estadístiques principals de cada una de les variables: min, max, quartils, nombre de NAs...
+
+```{r message= FALSE, warning=FALSE}
+summary(Hawks)
+```
+
+### Preprocessament (neteja)
+
+S'observa que les variables *CaptureTime*, *ReleaseTime* i *BandNumber* han quedat codificades com a tipus factor en la importació, així doncs es procedeix a canviar-ne el tipus.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+Hawks$CaptureTime<-strptime(as.character(Hawks$CaptureTime),format="%H:%M")
+Hawks$ReleaseTime<-strptime(as.character(Hawks$ReleaseTime),format="%H:%M")
+Hawks$BandNumber<-as.character(Hawks$BandNumber)
+```
+
+S'analitza, també, el nombre de NAs en el *dataset* considerant cada variable per separat.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+NA_number<-sum(is.na(Hawks))
+if (NA_number!=0){
+  colSums(is.na(Hawks))
+}else{
+  NA_number
+}
+```
+
+S'observa que algunes de les variables contenen un nombre elevat de NAs (*ReleaseTime*, *StandardTail*, *Tarsus*, *WingPitFat*, *KeelFat* i *Crop*). Aquest fet s'ha de considerar durant tot el procés de mineria de dades per evitar considerar variables en l'estudi que puguin no ser representatives. Altres variables contenen alguns NAs (*Wing*, *Weight*, *Culmen* i *Hallux*). En aquests casos es procedeix a eliminar **només** les files que continguin NAs.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+Hawks_clean<-Hawks %>%
+  filter_at(vars(Wing, Weight, Culmen, Hallux), all_vars(!is.na(.)))
+```
+
+S'analitza novament els nombre de NAs per cada variable per certificar que el filtratge s'ha realitzat amb èxit.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+NA_number<-sum(is.na(Hawks_clean))
+if (NA_number!=0){
+  colSums(is.na(Hawks_clean))
+}else{
+  NA_number
+}
+```
+
+### Exploració inicial
+
+Es procedeix a fer una primera exploració de les dades a través de la generació de sumaris i histogrames per a les variables numèriques.
+
+```{r echo=TRUE, fig.height=16, message=FALSE, warning=FALSE, fig.width=10}
+# selecció de variables
+atributs = c("Month","Day","Year","Wing","Weight","Culmen","Hallux","Tail","StandardTail","Tarsus", "WingPitFat","KeelFat","Crop")
+
+histList<- list()
+
+# creació dataset auxiliar
+dataAux= Hawks_clean %>% 
+  select(all_of(atributs))
+
+summary(dataAux[atributs])
+
+# creació gràfics
+for(i in 1:ncol(dataAux)){
+  col <- names(dataAux)[i]
+  ggp <- ggplot(dataAux, aes_string(x = col)) +
+    geom_histogram(bins = 30, fill = "cornflowerblue", color = "black") 
+  histList[[i]] <- ggp
+}
+ multiplot(plotlist = histList, cols = 1)
+```
+
+A partir dels histogrames s'observa que:
+
++ Les adquisicions de dades es van realitzar en els mesos 9, 10 i 11 i dels tres, majoritàriament l'11
++ La distribució entre els dies del mes es força homogènia
++ Les dades es van recopilar des de l'any 1992 fins l'any 2003
++ La distribució de la variables *Wing*, *weight*, *culmen*, *tail* i *tarsus* presenta habitualment dos zones diferenciades d'acumulació permetent intuir 2 tipus de mostres, ja siguin espècies diferents, aus amb gèneres diferents o aus amb edats diferents
+
+I la generació de sumaris i gràfics de barres per a les variables de tipus factor.
+
+```{r echo=TRUE, fig.height=6, message=FALSE, warning=FALSE, fig.width=10}
+# selecció de variables
+atributs = c("Species","Age","Sex")
+
+plotList<- list()
+
+# creació dataset auxiliar
+dataAux= Hawks_clean %>% 
+  select(all_of(atributs))
+
+summary(dataAux[atributs])
+
+# creació gràfics
+for(i in 1:ncol(dataAux)){
+  col <- names(dataAux)[i]
+  ggp <- ggplot(dataAux, aes_string(x = col)) +
+    geom_bar(fill = "cornflowerblue", color = "black")
+  plotList[[i]] <- ggp
+}
+ multiplot(plotlist = plotList, cols = 1)
+```
+
+A partir dels diagrames de barres s'observa que:
+
++ L'espècie predominant en el *dataset* és la **RT** amb `r summary(Hawks_clean$Species)[2]` mostres. Mentre que l'espècie amb menys aparicions en el dataset és la **CH** amb `r summary(Hawks_clean$Species)[1]` mostres, un `r percent(summary(Hawks_clean$Species)[1]/summary(Hawks_clean$Species)[2])` de l'anterior
++ Aproximadament un `r percent(summary(Hawks_clean$Age)[1]/(summary(Hawks_clean$Age)[1]+summary(Hawks_clean$Age)[2]))` de les mostres fan referència a aus categoritzades com **adultes**, mentre que el `r percent(1-summary(Hawks_clean$Age)[1]/(summary(Hawks_clean$Age)[1]+summary(Hawks_clean$Age)[2]))` de les aus restant són categoritzades com **inmadures**
++ La variable *sex* presenta un elevat nombre de mostres amb el camp en blanc. Concretament el `r percent(summary(Hawks_clean$Sex)[1]/(summary(Hawks_clean$Sex)[1]+summary(Hawks_clean$Sex)[2]+summary(Hawks_clean$Sex)[3]))` de les mostres estan en blanc fet que s'ha de considerar en l'estudi
+
+Finalment es mostren gràfics de dispersió per parelles de variables i diferenciant les diferents espècies d'aus per colors d'acord amb la variable *Species*:
+
+```{r message= FALSE, warning=FALSE, fig.width=10}
+### imprimim nivells factor a mode de llegenda
+levels(Hawks_clean$Species)
+### crear gràfic
+colors <- c("coral", "darkolivegreen1", "cornflowerblue")[Hawks_clean$Species]
+plot(Hawks_clean[,c(10,11,12,13)], col = colors)
+```
+
+### Construcció de conjunt de dades final
+
+Es limita l'abast del *dataset* a les variables proposades per l'anunciat: *Wing*, *Weight*, *Culmen*, *Hallux*.
+
+```{r message= FALSE, warning=FALSE}
+# selecció de variables
+atributs = c("Wing","Weight","Culmen","Hallux")
+
+# creació dataset auxiliar
+x <- Hawks_clean %>% 
+  select(all_of(atributs))
+```
+
+### Clústering
+
+A partir del conjunt de dades final s'aplica algoritme de **k-means** en *batch* per diferent número de clústers (de 2 fins a 10).
+
+```{r message= FALSE, warning=FALSE}
+d <- daisy(x) 
+results_s <- rep(0, 10)
+results_w <- rep(0, 10)
+
+for (i in c(2,3,4,5,6,7,8,9,10))
+{
+  fit <- kmeans(x, i)
+  y_cluster <- fit$cluster
+  sk <- silhouette(y_cluster, d)
+  results_s[i] <- mean(sk[,3])
+  results_w[i] <- fit$tot.withinss
+}
+```
+
+#### Análisi de la bondat de l'agrupament
+
+Es mostra en una gràfica els valors de la **silueta mitja** per cada número de clústers amb l'objectiu de trobar el nonmbre òptim.  
+
+```{r message= FALSE, warning=FALSE, fig.width=10}
+plot(2:10,results_s[2:10],
+     type="o",col="cornflowerblue",pch=19,
+     xlab="Número de clusters",ylab="Silueta")
+```
+
+Observant el gràfic anterior i buscant-ne el colze, s'estableix un nombre de clústers òptim (a partir de la silueta) de k=5 o k=6. Com que el valor no està alineat amb la informació prèvia del nombre d'espècies, es decideix visualitzar el nombre de clústers òptim a través del mètode **withinss** (menor suma de quadrats de les distàncies dels punts de cada grup respecte el seu centre).
+
+```{r message= FALSE, warning=FALSE, fig.width=10}
+plot(2:10,results_w[2:10],
+     type="o",col="cornflowerblue",pch=19,
+     xlab="Número de clusters",ylab="withinss")
+```
+
+Novament, observant el colze en el gràfic es confirma el nombre de clústers òptim en k=5 o k=6.
+
+Tanmateix i com a darrera comprovació, s'utilitza la funció *kmeansruns* del paquet **fpc**. Aquesta funció executa l'algoritme *k-means* com un conjunt de valors i selecciona el valor del número de clústers que millor funcioni d'acord amb dos criteris: la silueta mitja (asw) i *Calinski-Harabasz* ("ch").   
+
+```{r message= FALSE, warning=FALSE, fig.width=10}
+fit_ch  <- kmeansruns(x, krange = 1:10, criterion = "ch") 
+fit_asw <- kmeansruns(x, krange = 1:10, criterion = "asw")
+fit_ch$bestk
+fit_asw$bestk
+
+plot(1:10,fit_ch$crit,
+     type="o",col="cornflowerblue",pch=19,
+     xlab="Número de clústers",
+     ylab="Criteri Calinski-Harabasz")
+plot(1:10,fit_asw$crit,
+     type="o",col="cornflowerblue",pch=19,
+     xlab="Número de clústers",
+     ylab="Criteri silueta mitja")
+```
+
+Els gràfics anteriors confirmen els resultats previs per al nombre de clústers òptim doncs mostren ambdós, estabilització de valors per **k=6**.
+
+#### Descripció i interpretació de resultats
+
+```{r message= FALSE, warning=FALSE}
+fit6       <- kmeans(x, 6)
+y_cluster6 <- fit6$cluster
+```
+
+```{r message= FALSE, warning=FALSE, fig.height=8, fig.width=10}
+levels(Hawks_clean$Species)
+par(mfrow=c(2,2))
+#Wing & Weight
+plot(x[c(1,2)], col=fit6$cluster, main="Classificació k-means")
+legend("topleft", legend=levels(as.factor(fit6$cluster)), pch =16, col = unique(fit6$cluster))
+
+plot(x[c(1,2)], col=colors, main="Classificació real")
+legend("topleft", legend=c("RT","CH","SS"), pch =16, col = unique(colors))
+
+#Culmen & Hallux
+plot(x[c(3,4)], col=fit6$cluster, main="Classificació k-means")
+legend("topleft", legend=levels(as.factor(fit6$cluster)), pch =16, col = unique(fit6$cluster))
+
+plot(x[c(3,4)], col=colors, main="Classificació real")
+legend("topleft", legend=c("RT","CH","SS"), pch =16, col = unique(colors))
+```
+
+Comparant els resultats obtinguts amb el mètode *k-means* i els resultats de classificació real, es pot establir que *k-means* identifica correctament les 3 espècies d'aus, però que de manera addicional genera sub-divisions dins una mateixa espècie, és a dir:
+
++ Les mostres de l'espècie **CH** en la classificació real coincideixen amb les mostres del clúster #3 en *k-means*
++ Les mostres de l'espècie **SS** en la classificació real coincideixen amb les mostres dels clústers #4 en *k-means*
++ Les mostres de l'espècie **RT** en la classificació real coincideixen amb les mostres dels clústers #1,#2,#5 i #6 en *k-means*
+
+Si pel contrari, en base a la informació prèvia, es força *k-means* a un nombre de clústers k=3; s'obté que els resultats obtinguts difereixen en molt més mesura respecte la classificació real, tal i com es pot observar a continuació:
+
+```{r message= FALSE, warning=FALSE}
+fit3       <- kmeans(x, 3)
+y_cluster3 <- fit3$cluster
+```
+
+```{r message= FALSE, warning=FALSE, fig.height=8, fig.width=10}
+par(mfrow=c(2,2))
+#Wing & Weight
+plot(x[c(1,2)], col=fit3$cluster, main="Classificació k-means")
+legend("topleft", legend=levels(as.factor(fit3$cluster)), pch =16, col = unique(fit3$cluster))
+
+plot(x[c(1,2)], col=colors, main="Classificació real")
+legend("topleft", legend=c("RT","CH","SS"), pch =16, col = unique(colors))
+
+#Culmen & Hallux
+plot(x[c(3,4)], col=fit3$cluster, main="Classificació k-means")
+legend("topleft", legend=levels(as.factor(fit3$cluster)), pch =16, col = unique(fit3$cluster))
+
+plot(x[c(3,4)], col=colors, main="Classificació real")
+legend("topleft", legend=c("RT","CH","SS"), pch =16, col = unique(colors))
+```
+
+******
+## Exercici 2
+Amb el joc de dades proporcionat realitza un estudi similar al de l'exemple 2
+
+******
+
+### Algoritme DBSCAN
+
+S'inicia el procés amb l'execució de l'algoritme *DBSCAN* considerant \(\epsilon\) entre 20 i 100 (cada 20). Per cada valor es grafiquen les variables del *dataset* i s'identifiquen en diferents colors els clústers obtinguts.
+
+```{r message= FALSE, warning=FALSE, fig.height=16, fig.width=10}
+par(mfrow=c(5,2))
+# creació gràfics
+for (eps in c(20,40,60,80,100)){
+  res_dbscan <- dbscan(x, eps=eps, minPts = 10)
+  plot(x[c(1,2)], col=res_dbscan$cluster+1)
+  plot(x[c(3,4)], col=res_dbscan$cluster+1)
+}
+```
+
+L'algoritme *DBSCAN* és un dels algoritmes basats en densitat, així doncs es busquen zones d'alta concentració separades de la resta per zones de densitat menor. *DBSCAN* necessita 2 paràmetres per a l'execució: \(\epsilon\) o màxim radi de veïnatge i *minPts* o nombre mínim de punts en el \(\epsilon\)-veïnatge.
+
+Amb la informació proporcionada es busquen punts **nucli** (punt que té a una distància inferior o igual a \(\epsilon\) un mínim de *minPts*) i punts **assolibles** (punts dins de l'\(\epsilon\)-veïnatge d'un punt nucli). Qualsevol punt que no sigui assolible es considera extrem o *outlier*.
+
+Aquesta forma d'agrupar els punts permet a *DBSCAN* generar clústers de qualsevol forma geomètrica, tenir unes bones capacitats per detectar valors extrems i trobar clústers sense la necessitat de proporcionar el nombre òptim d'aquests.
+
+Per altra banda, com a inconvenient es necessita fixar valors per a \(\epsilon\) i per a *minPts*.
+
+A continuació es mostren els resultats sumaritzats de l'aplicació de *DBSCAN* amb uns valors de \(\epsilon\) iguals a 60 i 80 i *minPts*=10. Valors pels quals es minimitza el nombre de valors extrems.
+
+```{r message= FALSE, warning=FALSE}
+dbscan(x,eps=60, minPts = 10)
+dbscan(x,eps=80, minPts = 10)
+```
+
+### Algoritme OPTICS
+
+L'algoritme *OPTICS* és un altre dels algoritmes basats en densitat. Com DBSCAN, OPTICS necessita 2 paràmetres per a l'execució: \(\epsilon\) o màxim radi de veïnatge i *minPts* o nombre mínim de punts en el \(\epsilon\)-veïnatge, tot i que en aquest cas \(\epsilon\) no determina la formació de clústers sinó que s'utilitza per reduir la complexitat del càlcul.
+
+A diferència de *DBSCAN*, *OPTICS* no proporciona una proposta de clústers, sinó que ordena els punts del *dataset* d'acord amb la seva distància d'assolibilitat o *reachability-distance*. A partir d'aquesta informació es generen els anomenats *reachability plot* que permeten, de manera visual, calibrar la distància límit per a definir un clúster.
+
+A continuació s'executa l'algoritme *OPTICS* sobre el *dataset* deixant el valor de \(\epsilon\) al seu valor per defecte i *minPts*=10 i es mostren els resultats.
+
+```{r message= FALSE, warning=FALSE}
+### Executem l'algoritme OPTICS deixant el paràmetre eps amb el seu valor per defecte i fixant el criteri de veïnatge en 10
+res_optics <- optics(x, minPts = 10)
+res_optics
+```
+
+Com citat anteriorment, l'algoritme *OPTICS* proporciona l'ordenació de les dades d'acord a la seva distància d'accessibilitat.
+
+```{r message= FALSE, warning=FALSE}
+### Obtenim la ordenació de les observacions o punts
+res_optics$order
+```
+
+Aquest fet permet dibuixar el **diagrama d'accessibilitat** observant la distància d'accessibilitat de cada punt. En aquest tipus de gràfic, les valls del diagrama representen els clústers (més profunda la vall, més dens és el clústers) i els cims representen els punts entre agrupacions.
+
+```{r message= FALSE, warning=FALSE, fig.width=10}
+### Gràfic d'accessibilitat
+plot(res_optics)
+```
+
+Un altre tipus de visualització s'obté a partir de les traces de distàncies entre punts propers en el mateix clúster i entre clústers diferents.
+
+```{r message= FALSE, warning=FALSE, fig.width=10}
+### Dibuixem les traces que relacionen punts
+plot(x[,1:2], col = "grey")
+polygon(x[res_optics$order,])
+```
+
+### Clústering
+
+A partir de les dades obtingudes amb l'algoritme *OPTICS* es procedeix a limitar la distància d'accessibilitat a valors de 20,40,60,80 i 100; generant diferents clústers com es pot observar de manera gràfica a continuació.
+
+```{r message= FALSE, warning=FALSE, fig.height=16, fig.width=10}
+par(mfrow=c(5,2))
+# creació gràfics
+for (i in c(20,40,60,80,100)){
+  res_cl <- extractDBSCAN(res_optics, eps_cl = i)
+  plot(res_cl)
+  hullplot(x,res_cl)
+}
+```
+
+De manera addicional l'algoritme *OPTICS* permet, no només l'extracció de clústers a través d'una \(\epsilon\) de tall sinó que també permet l'extracció *Xi*, que genera els clústers en funció del canvi de la densitat relativa. 
+
+```{r message= FALSE, warning=FALSE, fig.width=10}
+### Extracció del clustering jeràrquic en funció de la variació de la densitat pel mètode xi
+res_cl <- extractDBSCAN(res_optics, eps_cl = 80)
+res_cl <- extractXi(res_cl, xi = 0.05)
+res_cl  
+plot(res_cl)
+hullplot(x, res_cl)
+```
+
+Interessant la visualització de clústers tan en el gràfic de *reachability plot*, que permet observar alguns clústers més petits dins de clúster més grans, com en el gràfic *Hull plot*.
+
+#### Análisi de la bondat de l'agrupament
+
+Per tal d'analitzar la bondat de l'agrupament es selecciona l'agrupament amb eps_cl=80 i s'obtenen les estadístiques de l'agrupament:
+
+```{r message= FALSE, warning=FALSE, fig.height=8}
+res_cl <- extractDBSCAN(res_optics, eps_cl = 80)
+res_cl
+cluster.stats(dist(x), res_cl$cluster)
+```
+
+Posteriorment es visualitza la classificació realitzada per l'algoritme *DBSCAN* comparant-la amb la classificació per espècies en el *dataset*
+
+```{r message= FALSE, warning=FALSE, fig.height=8, fig.width=10}
+par(mfrow=c(2,2))
+plot(x[c(1,2)], col=res_cl$cluster+1, main="Classificació DBSCAN")
+legend("topleft", legend=levels(as.factor(res_cl$cluster+1)), pch =16, col = unique(res_cl$cluster+1))
+
+plot(x[c(1,2)], col=colors, main="Classificació real")
+legend("topleft", legend=c("RT","CH","SS"), pch =16, col = unique(colors))
+
+plot(x[c(3,4)], col=res_cl$cluster+1, main="Classificació DBSCAN")
+legend("topleft", legend=levels(as.factor(res_cl$cluster+1)), pch =16, col = unique(res_cl$cluster+1))
+
+plot(x[c(3,4)], col=colors, main="Classificació real")
+legend("topleft", legend=c("RT","CH","SS"), pch =16, col = unique(colors))
+```
+
+Addicionalment, es calcula la matriu de confusió de la classificació amb *DBSCAN* i la classificació real
+
+```{r message= FALSE, warning=FALSE}
+confMdb<-table(res_cl$cluster,Hawks_clean$Species)[,c(2,1,3)]
+row.names(confMdb)[1]<-"Outliers"
+confMdb
+```
+
+Amb tot l'anterior, s'observa que la bondat de l'agrupament és molt bona ja que de manera general:
+
++ Les mostres de l'espècie **CH** en la classificació real coincideixen amb les mostres del clúster #2 en *DBSCAN*
++ Les mostres de l'espècie **SS** en la classificació real coincideixen amb les mostres dels clúster #3 en *DBSCAN*
++ Les mostres de l'espècie **RT** en la classificació real coincideixen amb les mostres dels clúster #1 en *DBSCAN*
+
+Addicionalment, *DBSCAN* ha deixat algunes mostres sense ubicar a cap clúster. Aquests són els valors extrems o *outliers* i com es pot observar en la matriu de confusió `r confMdb[1,1]` són mostres que originalment pertanyen a *RT*, `r confMdb[1,2]` a *CH* i `r confMdb[1,3]` a *SS*.
+
+******
+## Exercici 3
+Realitza una comparativa dels mètodes *k-means* i *DBSCAN*   
+
+******
+
+### Comparativa de resultats
+
+Per tal de comparar els resultats obtinguts amb *k-means* i *DBSCAN*, es recuperen els resultats anteriors i es grafiquen.
+
+```{r message= FALSE, warning=FALSE, fig.height=8, fig.width=10}
+par(mfrow=c(2,3))
+#Wing & Weight
+plot(x[c(1,2)], col=fit6$cluster, main="Classificació k-means")
+legend("topleft", legend=levels(as.factor(fit6$cluster)), pch =16, col = unique(fit6$cluster))
+
+plot(x[c(1,2)], col=res_cl$cluster+1, main="Classificació DBSCAN")
+legend("topleft", legend=levels(as.factor(res_cl$cluster+1)), pch =16, col = unique(res_cl$cluster+1))
+
+plot(x[c(1,2)], col=colors, main="Classificació real")
+legend("topleft", legend=c("RT","CH","SS"), pch =16, col = unique(colors))
+
+#Culmen & Hallux
+plot(x[c(3,4)], col=fit6$cluster, main="Classificació k-means")
+legend("topleft", legend=levels(as.factor(fit6$cluster)), pch =16, col = unique(fit6$cluster))
+
+plot(x[c(3,4)], col=res_cl$cluster+1, main="Classificació DBSCAN")
+legend("topleft", legend=levels(as.factor(res_cl$cluster+1)), pch =16, col = unique(res_cl$cluster+1))
+
+plot(x[c(3,4)], col=colors, main="Classificació real")
+legend("topleft", legend=c("RT","CH","SS"), pch =16, col = unique(colors))
+```
+
+També es generen les matrius de confusió per a les dues classificacions (*DBSCAN* i *k-means*) respecte la classificació real.
+
+```{r message= FALSE, warning=FALSE}
+confMdb[c(1,2,4,3),c(1,3,2)]
+confMkm<-table(fit6$cluster,Hawks_clean$Species)[,c(2,1,3)]
+confMkm
+```
+
+En aquesta darrera, observant els resultats, es pot afirmar que els clústers #1,#2,#3 i #4 tenen una alta presencia de *RT*, mentre que el clúster #5 té una alta presència de *SS* i el #6 de *CH*. Llavors, es sumen els resultats dels clústers #1,#2,#3 i #4
+
+```{r message= FALSE, warning=FALSE}
+confMkm[1,]<-confMkm[1,]+confMkm[2,]+confMkm[3,]+confMkm[4,]
+confMkm<-confMkm[-c(2,3,4),c(1,3,2)]
+confMkm
+```
+
+També, considerant que la classificació real pot ser desconeguda, es calcula la matriu de confusió entre la classificació per *k-means* i la classificació per *DBSCAN*
+
+```{r message= FALSE, warning=FALSE}
+confMX<-table(res_cl$cluster, fit6$cluster)
+row.names(confMX)[1]<-"Outliers"
+confMX
+confMX[,1]<-confMX[,1]+confMX[,2]+confMX[,3]+confMX[,4]
+confMX[,c(1,6,5)]
+```
+
+A partir d'aquesta matriu s'estableix la mateixa relació citada anteriorment i s'afirma que els clústers #1,#2,#3 i #4 del mètode *k-means* tenen tot ells una alta relació amb el clúster #1 de *DBSCAN*. També s'observa que, sota la primera suposició, no s'observen falsos positius o falsos negatius entre els dos mètodes. Tota la incertesa dels clústers en el mètode *k-means* s'acumula en la fila de *outliers* en el mètode *DBSCAN*.
+
+### Avantatges i inconvenients
+
+L'avantatge principals dels models basats en la densitat (*OPTICS*, *DBSCAN*) respecte dels particionals (*k-means*) és la seva capacitat per identificar clústers de qualsevol forma geomètrica ja que només és necessària l'existència de zones amb alta concentració i zones amb baixa.
+
+També, els algoritmes basats en densitat són especialment bons detectant *outliers* ja que habitualment aquests es troben en zones de baixa densitat amb difícil assolibilitat. Tanmateix aquest tipus d'algoritmes no necessiten definir prèviament el nombre de clústers doncs aquests es troben en funció de les zones d'alta i baixa densitat existents en el joc de dades.
+
+L'inconvenient principal dels algoritmes basats en densitat és que els seus resultats dependran dels paràmetres d'entrada \(\epsilon\) i *minPts*
+
+### Conclusions
+
+Les principals conclusions que s'extreuen de l'activitat són:
+
++ Les adquisicions de dades es van realitzar en els mesos 9, 10 i 11 i dels tres, majoritàriament l'11
++ La distribució entre els dies del mes és força homogènia
++ Les dades es van recopilar des de l'any 1992 fins l'any 2003
++ La distribució de la variables *Wing*, *weight*, *culmen*, *tail* i *tarsus* presenta habitualment dos zones diferenciades d'acumulació
++ L'espècie predominant en el *dataset* és la **RT** amb `r summary(Hawks_clean$Species)[2]` mostres.
++ L'espècie amb menys aparicions en el *dataset* és la **CH** amb `r summary(Hawks_clean$Species)[1]` mostres, un `r percent(summary(Hawks_clean$Species)[1]/summary(Hawks_clean$Species)[2])` de l'espècie predominant
++ Aproximadament un `r percent(summary(Hawks_clean$Age)[1]/(summary(Hawks_clean$Age)[1]+summary(Hawks_clean$Age)[2]))` de les mostres fan referència a aus categoritzades com **adultes**, mentre que el `r percent(1-summary(Hawks_clean$Age)[1]/(summary(Hawks_clean$Age)[1]+summary(Hawks_clean$Age)[2]))` de les aus restant són categoritzades com **inmadures**
++ La variable *sex* presenta un elevat nombre de mostres amb el camp en blanc. Concretament el `r percent(summary(Hawks_clean$Sex)[1]/(summary(Hawks_clean$Sex)[1]+summary(Hawks_clean$Sex)[2]+summary(Hawks_clean$Sex)[3]))` de les mostres estan en blanc
++ *k-means* indica que el nombre òptim de clústers es troba en k=5 o k=6 tan pel mètode de la **silueta** com pel mètode **withinss**
++ Els mètodes de la **silueta mitjana** i de **Calinski-Harabasz** indiquen que el nombre òptim de clústers és k=6
++ Amb aquest nombre de clústers, *k-means* subdivideix l'espècie amb més representació en el *dataset* en 4 clústers. Les altres dues espècies son correctament identificades.
++ *DBSCAN* amb una configuració de \(\epsilon\)=80 i *minPts*=10 detecta 3 clústers i 20 *outliers*
++ Amb *OPTICS* s'estudien diferents talls en la *reachability distance*, coincidint en la elecció anterior de *eps_cl*=80
++ La comparació de resultats obtinguts a través de *k-means* i *DBSCAN* permet, sense coneixement de la classificació real, veure que els clústers #1,#2,#3 i #4 obtinguts a través de *k-means* estan tots ells relacionats amb el clúster #1 obtingut amb *DBSCAN*
+
+
+## References
+
+https://rdrr.io/rforge/Stat2Data/man/Hawks.html
